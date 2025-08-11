@@ -44,8 +44,56 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    enum class DSP_Options {
+        Distortion,
+        Chorus,
+        Reverb,
+        Flanger,
+        Phaser,
+        Comb,
+        Filter,
+        Waveshaper,
+        END
+    };
+
+    enum class Filter_Options {
+        Highpass,
+        Bandpass,
+        Lowpass
+    };
+
+    //juce::AudioProcessorValueTreeState APVTS;
+
+    using DSP_Order = std::array<DSP_Options, static_cast<size_t>(DSP_Options::END)>;
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessor)
+
+    DSP_Order dspOrder;
+
+    template<typename DSP>
+    struct DSP_Choice : juce::dsp::ProcessorBase {
+        void prepare(const juce::dsp::ProcessSpec& spec) override {
+            dsp.prepare(spec);
+        }
+
+        void process(const juce::dsp::ProcessContextReplacing<float>& context) override {
+            dsp.process(context);
+        }
+
+        void reset() {
+            dsp.reset();
+        }
+
+        DSP dsp;
+    };
+
     WavetableSynth synth;
+    DSP_Choice<juce::dsp::Phaser<float>> phaser;
+    DSP_Choice<juce::dsp::Reverb> reverb;
+    DSP_Choice<juce::dsp::LadderFilter<float>> filter;
+    DSP_Choice<juce::dsp::WaveShaper<float>> waveshaper;
+
+    using DSP_Pointers = std::array<juce::dsp::ProcessorBase*, static_cast<size_t>(DSP_Options::END)>;
+
 };
