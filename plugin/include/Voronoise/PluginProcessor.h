@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "synth/WavetableSynth.h"
+#include "DSP/Fifo.h"
 
 //==============================================================================
 class VoronoiseAudioProcessor final : public juce::AudioProcessor
@@ -18,6 +19,7 @@ public:
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
 
+    juce::ValueTree getValueTree();
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     using AudioProcessor::processBlock;
 
@@ -62,9 +64,11 @@ public:
         Lowpass
     };
 
-    //juce::AudioProcessorValueTreeState APVTS;
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    juce::AudioProcessorValueTreeState apvts {*this, nullptr, "Settings", createParameterLayout()};
 
     using DSP_Order = std::array<DSP_Options, static_cast<size_t>(DSP_Options::END)>;
+    SimpleMBComp::Fifo<DSP_Order> dspOrderFifo;
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessor)

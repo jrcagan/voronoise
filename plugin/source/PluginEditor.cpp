@@ -3,7 +3,7 @@
 
 //==============================================================================
 VoronoiseAudioProcessorEditor::VoronoiseAudioProcessorEditor (VoronoiseAudioProcessor& p)
-    : AudioProcessorEditor (&p), processorRef (p)
+    : AudioProcessorEditor (&p), processorRef (p), valueTree (p.getValueTree())
 {
     juce::ignoreUnused (processorRef);
     // Make sure that before the constructor has finished, you've set the
@@ -24,9 +24,16 @@ void VoronoiseAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white);
     g.setFont (15.0f);
     g.drawFittedText ("Hello World!", getLocalBounds(), juce::Justification::centred, 1);
-    for(juce::Point<float> p : points) {
-        // just draws it with 2 height, width and thickness rn
-        g.drawEllipse(p.getX(), p.getY(), 2.f, 2.f, 2.f);
+
+    auto sitesTree = valueTree.getChildWithName("Sites");
+
+    for(int i = 0; i < sitesTree.getNumChildren(); i++) {
+
+        auto site = sitesTree.getChild(i);
+        float x = static_cast<float>(site["x"]);
+        float y = static_cast<float>(site["y"]);
+        // 2.f stuff is just a placeholder rn to just draw circles yah yah yah
+        g.drawEllipse(x, y, 2.f, 2.f, 2.f);
     }
     
 }
@@ -43,5 +50,12 @@ void VoronoiseAudioProcessorEditor::mouseDoubleClick (const juce::MouseEvent& ev
     juce::Point<float> point = juce::Point<float>(static_cast<float>(event.x),static_cast<float>(event.y));
     points.push_back(point);
     repaint();
+    auto sitesTree = valueTree.getChildWithName("Sites");
+        sitesTree.appendChild(
+            juce::ValueTree("Site")
+                .setProperty("x", event.x, nullptr)
+                .setProperty("y", event.y, nullptr),
+            nullptr
+        );
 
 }

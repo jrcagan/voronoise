@@ -9,7 +9,7 @@ juce_add_plugin(${PROJECT_NAME}
    NEEDS_MIDI_OUTPUT FALSE 
    PLUGIN_MANUFACTURER_CODE Jsnd
    PLUGIN_CODE Vrnz
-   FORMATS VST3 STANDALONE
+   FORMATS VST3 Standalone
    PRODUCT_NAME "Voronoise"
 )
 
@@ -20,7 +20,12 @@ set(SOURCE_FILES source/PluginEditor.cpp
                  source/PluginProcessor.cpp 
                  source/synth/WavetableOscillator.cpp 
                  source/synth/WavetableSynth.cpp)
-set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h ${INCLUDE_DIR}/Voronoise/PluginProcessor.h ${INCLUDE_DIR}/synth/WavetableOscillator.h ${INCLUDE_DIR}/synth/WavetableSynth.h)
+
+set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h 
+                 ${INCLUDE_DIR}/Voronoise/PluginProcessor.h 
+                 ${INCLUDE_DIR}/synth/WavetableOscillator.h 
+                 ${INCLUDE_DIR}/synth/WavetableSynth.h
+                 ${INCLUDE_DIR}/DSP/Fifo.h)
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 

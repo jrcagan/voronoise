@@ -12,6 +12,9 @@ VoronoiseAudioProcessor::VoronoiseAudioProcessor()
                      #endif
                        )
 {
+    // for use in storing sites a user adds in the grid
+    if (! apvts.state.getChildWithName("Sites").isValid())
+    apvts.state.addChild({ "Sites", {}, {} }, -1, nullptr);
 }
 
 VoronoiseAudioProcessor::~VoronoiseAudioProcessor()
@@ -122,6 +125,15 @@ bool VoronoiseAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
   #endif
 }
 
+juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::createParameterLayout() {
+    juce::AudioProcessorValueTreeState::ParameterLayout layout; 
+    return layout;
+}
+
+juce::ValueTree VoronoiseAudioProcessor::getValueTree() {
+    return apvts.state;
+}
+
 void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                               juce::MidiBuffer& midiMessages)
 {
@@ -132,7 +144,44 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     buffer.clear();
 
     synth.processBlock(buffer,midiMessages);
+
+    auto newDSPOrder = DSP_Order();
+
+    while(dspOrderFifo.pull(newDSPOrder)) {
+
+    }
+
+    if (newDSPOrder != DSP_Order()) {
+        dspOrder = newDSPOrder;
+    }
     
+    DSP_Pointers dspPointers;   
+
+    for (int i = 0; i < dspPointers.size(); i++) {
+        switch(dspOrder[i]) {
+            case DSP_Options::Phaser:
+                dspPointers[i] = &phaser;
+                break;
+            case DSP_Options::Reverb:
+                dspPointers[i] = &reverb;
+                break;
+            case DSP_Options::Filter:
+                dspPointers[i] = &filter;
+                break;
+            case DSP_Options::Waveshaper:
+                dspPointers[i] = &waveshaper;
+                break;
+        }
+    }
+
+    auto block = juce::dsp::AudioBlock<float>(buffer);
+    auto context = juce::dsp::ProcessContextReplacing<float>(block);
+
+    for (int i = 0; i < dspPointers.size(); i++) {
+        if(dspPointers[i] != nullptr) {
+            dspPointers[i]->process(context);
+        }
+    }
 }
 
 //==============================================================================

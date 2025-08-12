@@ -22,6 +22,7 @@ private:
     // access the processor object that created it.
     VoronoiseAudioProcessor& processorRef;
     std::vector<juce::Point<float>> points;
+    juce::ValueTree valueTree;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessorEditor)
 };
