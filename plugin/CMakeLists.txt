@@ -19,13 +19,17 @@ set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(SOURCE_FILES source/PluginEditor.cpp 
                  source/PluginProcessor.cpp 
                  source/synth/WavetableOscillator.cpp 
-                 source/synth/WavetableSynth.cpp)
+                 source/synth/WavetableSynth.cpp
+                 source/geometry/Delaunay.cpp 
+                 source/geometry/Voronoi.cpp)
 
 set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h 
                  ${INCLUDE_DIR}/Voronoise/PluginProcessor.h 
                  ${INCLUDE_DIR}/synth/WavetableOscillator.h 
                  ${INCLUDE_DIR}/synth/WavetableSynth.h
-                 ${INCLUDE_DIR}/DSP/Fifo.h)
+                 ${INCLUDE_DIR}/DSP/Fifo.h
+                 ${INCLUDE_DIR}/geometry/Delaunay.h
+                 ${INCLUDE_DIR}/geometry/Voronoi.h)
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 

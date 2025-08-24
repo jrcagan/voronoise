@@ -7,6 +7,7 @@
 //==============================================================================
 class VoronoiseAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
+using Point = juce::Point<double>;
 public:
     explicit VoronoiseAudioProcessorEditor (VoronoiseAudioProcessor&);
     ~VoronoiseAudioProcessorEditor() override;
@@ -21,7 +22,7 @@ private:
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     VoronoiseAudioProcessor& processorRef;
-    std::vector<juce::Point<float>> points;
+    std::vector<Point> points;
     juce::ValueTree valueTree;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessorEditor)

@@ -1,5 +1,5 @@
-#include "Voronoise/PluginProcessor.h"
 #include "Voronoise/PluginEditor.h"
+#include "geometry/Delaunay.h"
 
 //==============================================================================
 VoronoiseAudioProcessorEditor::VoronoiseAudioProcessorEditor (VoronoiseAudioProcessor& p)
@@ -28,12 +28,21 @@ void VoronoiseAudioProcessorEditor::paint (juce::Graphics& g)
     auto sitesTree = valueTree.getChildWithName("Sites");
 
     for(int i = 0; i < sitesTree.getNumChildren(); i++) {
+        Point p;
 
         auto site = sitesTree.getChild(i);
-        float x = static_cast<float>(site["x"]);
-        float y = static_cast<float>(site["y"]);
-        // 2.f stuff is just a placeholder rn to just draw circles yah yah yah
-        g.drawEllipse(x, y, 2.f, 2.f, 2.f);
+        double x = static_cast<double>(site["x"]);
+        double y = static_cast<double>(site["y"]);
+        p.setX(x);
+        p.setY(y);
+
+        // 2.0 stuff is just a placeholder rn to just draw circles yah yah yah
+        g.drawEllipse(static_cast<float>(x), static_cast<float>(y), 2.f, 2.f, 2.f);
+        points.push_back(p);
+    }
+
+    if (points.size() > 2) {
+        std::vector<Delaunay::Triangle> triangles = Delaunay::triangulate(points);
     }
     
 }
@@ -47,14 +56,14 @@ void VoronoiseAudioProcessorEditor::resized()
 void VoronoiseAudioProcessorEditor::mouseDoubleClick (const juce::MouseEvent& event)
 {
     // event.x and event.y
-    juce::Point<float> point = juce::Point<float>(static_cast<float>(event.x),static_cast<float>(event.y));
+    Point point = Point(event.x,event.y);
     points.push_back(point);
     repaint();
     auto sitesTree = valueTree.getChildWithName("Sites");
         sitesTree.appendChild(
             juce::ValueTree("Site")
-                .setProperty("x", event.x, nullptr)
-                .setProperty("y", event.y, nullptr),
+                .setProperty("x", static_cast<double>(event.x), nullptr)
+                .setProperty("y", static_cast<double>(event.y), nullptr),
             nullptr
         );
 

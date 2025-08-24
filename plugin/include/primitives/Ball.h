@@ -5,7 +5,6 @@
 class Ball : juce::Point {
 
 private:
-   juce::Point pos;
    juce::Colour color;
 
    float radius;
