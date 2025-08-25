@@ -1,251 +1,132 @@
 #include "geometry/Voronoi.h"
 #include <set>
 #include <cmath>
+#include <algorithm>
+#include <numeric>
 
 namespace Voronoi
 {
-   struct EdgeKey
+
+   std::vector<GeoUtils::Edge> getEdges(const std::vector<GeoUtils::Triangle> &tris, const GeoUtils::BBox &bbox)
    {
-      Delaunay::Point u, v;
-      bool operator<(const EdgeKey &other) const
+      auto voronoiCells = getCells(tris, bbox);
+      std::set<GeoUtils::Edge, GeoUtils::EdgeComparator> edges;
+
+      for (const auto &kv : voronoiCells)
       {
-         if (u.x != other.u.x)
-            return u.x < other.u.x;
-         if (u.y != other.u.y)
-            return u.y < other.u.y;
-         if (v.x != other.v.x)
-            return v.x < other.v.x;
-         return v.y < other.v.y;
-      }
-   };
-
-   std::vector<Delaunay::Edge> getEdges(const std::vector<Delaunay::Triangle> &tris)
-   {
-      std::map<EdgeKey, std::vector<int>> edgeToTriangles;
-
-      for (int i = 0; i < tris.size(); i++)
-      {
-         auto t = tris[i];
-         auto addEdge = [&](Delaunay::Point a, Delaunay::Point b)
+         const auto &vertices = kv.second.vertices;
+         if (vertices.size() < 2)
+            continue;
+         for (size_t i = 0; i < vertices.size(); ++i)
          {
-            if (b.x < a.x || (b.x == a.x && b.y < a.y))
-               std::swap(a, b);
-            edgeToTriangles[{a, b}].push_back(i);
-         };
-         addEdge(t.a, t.b);
-         addEdge(t.b, t.c);
-         addEdge(t.c, t.a);
-      }
-
-      std::vector<Delaunay::Circumcircle> circumcenters(tris.size());
-      for (int i = 0; i < (int)tris.size(); i++)
-         circumcenters[i] = Delaunay::getCircumcircle(tris[i]);
-
-      std::vector<Delaunay::Edge> voronoiEdges;
-      const double drawing_scale = 1000.0;
-
-      for (auto &kv : edgeToTriangles)
-      {
-         auto &triIndices = kv.second;
-         auto delaunayEdge = kv.first;
-
-         if (triIndices.size() == 2)
-         {
-            auto c1 = circumcenters[triIndices[0]];
-            auto c2 = circumcenters[triIndices[1]];
-            if (c1.valid && c2.valid)
-            {
-               voronoiEdges.push_back({c1.center, c2.center});
-            }
-         }
-         else if (triIndices.size() == 1)
-         {
-            auto c1 = circumcenters[triIndices[0]];
-            if (!c1.valid)
-               continue;
-
-            Delaunay::Point p1 = delaunayEdge.u;
-            Delaunay::Point p2 = delaunayEdge.v;
-
-            const auto &tri = tris[triIndices[0]];
-            Delaunay::Point p3;
-            if (Delaunay::pointsEqual(tri.a, p1) || Delaunay::pointsEqual(tri.a, p2))
-            {
-               if (Delaunay::pointsEqual(tri.b, p1) || Delaunay::pointsEqual(tri.b, p2))
-               {
-                  p3 = tri.c;
-               }
-               else
-               {
-                  p3 = tri.b;
-               }
-            }
+            GeoUtils::Edge e = {vertices[i], vertices[(i + 1) % vertices.size()]};
+            if (e.u.x < e.v.x || (e.u.x == e.v.x && e.u.y < e.v.y))
+               edges.insert(e);
             else
-            {
-               p3 = tri.a;
-            }
-
-            Delaunay::Point midpoint = {(p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0};
-
-            Delaunay::Point vec_in = {p3.x - midpoint.x, p3.y - midpoint.y};
-
-            Delaunay::Point normal = {p2.y - p1.y, p1.x - p2.x};
-
-            if (normal.x * vec_in.x + normal.y * vec_in.y > 0)
-            {
-               normal.x = -normal.x;
-               normal.y = -normal.y;
-            }
-
-            double len = std::sqrt(normal.x * normal.x + normal.y * normal.y);
-            if (len > 1e-9)
-            {
-               normal.x /= len;
-               normal.y /= len;
-            }
-
-            Delaunay::Point far_point = {
-                c1.center.x + normal.x * drawing_scale,
-                c1.center.y + normal.y * drawing_scale};
-
-            voronoiEdges.push_back({c1.center, far_point});
+               edges.insert({e.v, e.u});
          }
       }
-
-      return voronoiEdges;
+      return std::vector<GeoUtils::Edge>(edges.begin(), edges.end());
    }
 
-   std::map<Delaunay::Point, Voronoi::Cell, Delaunay::PointComparator>
-   getCells(const std::vector<Delaunay::Triangle> &tris, Delaunay::BBox bbox)
+   std::map<GeoUtils::Point, Cell, GeoUtils::PointComparator> getCells(const std::vector<GeoUtils::Triangle> &tris, const GeoUtils::BBox &bbox)
    {
+      std::map<GeoUtils::Point, Cell, GeoUtils::PointComparator> cells;
+      if (tris.empty())
+         return cells;
 
-      std::vector<Delaunay::Circumcircle> cc(tris.size());
-      for (int i = 0; i < (int)tris.size(); ++i)
-         cc[i] = getCircumcircle(tris[i]);
-
-      auto norm = [](Point a, Point b)
-      { if (b.x<a.x || (b.x==a.x && b.y<a.y)) std::swap(a,b); return EdgeKey{a,b}; };
-
-      std::map<EdgeKey, std::vector<int>> edgeToTris;
-      std::map<Point, std::vector<int>, Delaunay::PointComparator> siteToTris;
-      std::map<Point, std::set<Point, Delaunay::PointComparator>, Delaunay::PointComparator> siteNeighbors;
-
-      for (int i = 0; i < (int)tris.size(); ++i)
+      std::map<GeoUtils::Point, std::vector<size_t>, GeoUtils::PointComparator> siteToTriangles;
+      for (size_t i = 0; i < tris.size(); ++i)
       {
-         const auto &t = tris[i];
-
-         auto addE = [&](Point a, Point b)
-         { edgeToTris[norm(a, b)].push_back(i); };
-         addE(t.a, t.b);
-         addE(t.b, t.c);
-         addE(t.c, t.a);
-
-         siteToTris[t.a].push_back(i);
-         siteToTris[t.b].push_back(i);
-         siteToTris[t.c].push_back(i);
-
-         siteNeighbors[t.a].insert(t.b);
-         siteNeighbors[t.a].insert(t.c);
-         siteNeighbors[t.b].insert(t.a);
-         siteNeighbors[t.b].insert(t.c);
-         siteNeighbors[t.c].insert(t.a);
-         siteNeighbors[t.c].insert(t.b);
+         siteToTriangles[tris[i].a].push_back(i);
+         siteToTriangles[tris[i].b].push_back(i);
+         siteToTriangles[tris[i].c].push_back(i);
       }
 
-      std::map<Point, Voronoi::Cell, Delaunay::PointComparator> cells;
-
-      auto almostEqual = [](double a, double b)
-      { return std::abs(a - b) < 1e-9; };
-      auto dedup = [&](std::vector<Point> &v)
+      std::vector<GeoUtils::Circumcircle> circumcenters;
+      circumcenters.reserve(tris.size());
+      for (const auto &t : tris)
       {
-         std::vector<Point> out;
-         for (auto &p : v)
-         {
-            if (out.empty() || !almostEqual(p.x, out.back().x) || !almostEqual(p.y, out.back().y))
-               out.push_back(p);
-         }
-         v.swap(out);
-      };
+         circumcenters.push_back(Delaunay::getCircumcircle(t));
+      }
 
-      for (auto &kv : siteToTris)
+      for (const auto &pair : siteToTriangles)
       {
-         const Point &site = kv.first;
-         const auto &triIdx = kv.second;
+         const auto &site = pair.first;
+         const auto &tri_indices = pair.second;
 
-         // Collect circumcenters of incident triangles, linked by adjacency
-         std::map<int, std::vector<int>> triAdj;
-         for (int idx : triIdx)
+         std::vector<GeoUtils::Point> cell_vertices;
+         for (auto tri_idx : tri_indices)
          {
-            const auto &t = tris[idx];
-            for (Point v : {t.a, t.b, t.c})
+            if (circumcenters[tri_idx].valid)
             {
-               if (Delaunay::pointsEqual(v, site))
+               cell_vertices.push_back(circumcenters[tri_idx].center);
+            }
+         }
+
+         for (auto tri_idx : tri_indices)
+         {
+            const auto &tri = tris[tri_idx];
+            GeoUtils::Point p[3] = {tri.a, tri.b, tri.c};
+            for (int i = 0; i < 3; ++i)
+            {
+               GeoUtils::Point p1 = p[i];
+               GeoUtils::Point p2 = p[(i + 1) % 3];
+               if (!((GeoUtils::pointsEqual(p1, site) || GeoUtils::pointsEqual(p2, site)) && !GeoUtils::pointsEqual(p1, p2)))
                   continue;
-               EdgeKey ek = norm(site, v);
-               auto it = edgeToTris.find(ek);
-               if (it != edgeToTris.end() && it->second.size() == 2)
+
+               bool is_hull_edge = true;
+               for (auto other_tri_idx : tri_indices)
                {
-                  int t0 = it->second[0], t1 = it->second[1];
-                  triAdj[t0].push_back(t1);
-                  triAdj[t1].push_back(t0);
+                  if (tri_idx == other_tri_idx)
+                     continue;
+                  const auto &other_tri = tris[other_tri_idx];
+                  if ((GeoUtils::pointsEqual(other_tri.a, p1) || GeoUtils::pointsEqual(other_tri.b, p1) || GeoUtils::pointsEqual(other_tri.c, p1)) &&
+                      (GeoUtils::pointsEqual(other_tri.a, p2) || GeoUtils::pointsEqual(other_tri.b, p2) || GeoUtils::pointsEqual(other_tri.c, p2)))
+                  {
+                     is_hull_edge = false;
+                     break;
+                  }
+               }
+               if (is_hull_edge)
+               {
+                  GeoUtils::Point mid = {(p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0};
+                  GeoUtils::Point normal = {p2.y - p1.y, p1.x - p2.x};
+                  GeoUtils::Point third_pt = p[(i + 2) % 3];
+                  if ((mid.x - third_pt.x) * normal.x + (mid.y - third_pt.y) * normal.y < 0)
+                  {
+                     normal.x = -normal.x;
+                     normal.y = -normal.y;
+                  }
+                  double far_dist = 2.0 * (bbox.maxX - bbox.minX + bbox.maxY - bbox.minY);
+                  cell_vertices.push_back({circumcenters[tri_idx].center.x + normal.x * far_dist,
+                                           circumcenters[tri_idx].center.y + normal.y * far_dist});
                }
             }
          }
 
-         // Walk around site, chaining circumcenters in order
-         std::vector<Point> verts;
-         if (!triIdx.empty())
+         if (cell_vertices.size() < 2)
+            continue;
+         GeoUtils::Point center = {0, 0};
+         for (const auto &v : cell_vertices)
          {
-            int start = triIdx[0];
-            int curr = start, prev = -1;
-            do
-            {
-               if (!cc[curr].valid)
-                  break;
-               verts.push_back(cc[curr].center);
-
-               // pick next adjacent triangle around site
-               int next = -1;
-               for (int nb : triAdj[curr])
-                  if (nb != prev)
-                  {
-                     next = nb;
-                     break;
-                  }
-
-               prev = curr;
-               curr = next;
-            } while (curr != -1 && curr != start);
+            center.x += v.x;
+            center.y += v.y;
          }
+         center.x /= cell_vertices.size();
+         center.y /= cell_vertices.size();
 
-         dedup(verts);
+         std::sort(cell_vertices.begin(), cell_vertices.end(), [center](const GeoUtils::Point &a, const GeoUtils::Point &b)
+                   { return std::atan2(a.y - center.y, a.x - center.x) < std::atan2(b.y - center.y, b.x - center.x); });
 
          Voronoi::Cell cell;
-         cell.vertices = std::move(verts);
+         cell.vertices = GeoUtils::clipPolygon(cell_vertices, bbox);
 
-         if (!cell.closed)
+         if (!cell.vertices.empty())
          {
-            cell.vertices = clipPolygon(cell.vertices, bbox);
-            cell.closed = true; // after clipping it's now bounded
+            cells[site] = cell;
          }
-
-         // hull test
-         bool onHull = false;
-         for (const Point &nb : siteNeighbors[site])
-         {
-            EdgeKey ek = norm(site, nb);
-            auto it = edgeToTris.find(ek);
-            if (it != edgeToTris.end() && it->second.size() == 1)
-            {
-               onHull = true;
-               break;
-            }
-         }
-         cell.closed = !onHull;
-
-         cells[site] = std::move(cell);
       }
-
       return cells;
    }
 }

@@ -1,13 +1,13 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "geometry/Utils.h"
 #include <JuceHeader.h> 
 #include <vector>
 
 //==============================================================================
 class VoronoiseAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
-using Point = juce::Point<double>;
 public:
     explicit VoronoiseAudioProcessorEditor (VoronoiseAudioProcessor&);
     ~VoronoiseAudioProcessorEditor() override;
@@ -19,10 +19,8 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& event) override;
 
 private:
-    // This reference is provided as a quick way for your editor to
-    // access the processor object that created it.
     VoronoiseAudioProcessor& processorRef;
-    std::vector<Point> points;
+    std::vector<GeoUtils::Point> points; 
     juce::ValueTree valueTree;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessorEditor)

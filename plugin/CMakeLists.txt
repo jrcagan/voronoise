@@ -20,6 +20,7 @@ set(SOURCE_FILES source/PluginEditor.cpp
                  source/PluginProcessor.cpp 
                  source/synth/WavetableOscillator.cpp 
                  source/synth/WavetableSynth.cpp
+                 source/geometry/Utils.cpp 
                  source/geometry/Delaunay.cpp 
                  source/geometry/Voronoi.cpp)
 
@@ -28,6 +29,7 @@ set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h
                  ${INCLUDE_DIR}/synth/WavetableOscillator.h 
                  ${INCLUDE_DIR}/synth/WavetableSynth.h
                  ${INCLUDE_DIR}/DSP/Fifo.h
+                 ${INCLUDE_DIR}/geometry/Utils.h
                  ${INCLUDE_DIR}/geometry/Delaunay.h
                  ${INCLUDE_DIR}/geometry/Voronoi.h)
 

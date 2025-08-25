@@ -21,3 +21,6 @@ target_link_libraries(${PROJECT_NAME}
       Voronoise 
       GTest::gtest_main
 )
+
+include(GoogleTest)
+gtest_discover_tests(${PROJECT_NAME})
