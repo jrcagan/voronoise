@@ -31,12 +31,15 @@ namespace Delaunay
       if (std::abs(d) < 1e-18)
          return cc;
 
-      double ax2ay2 = ax.x * ax.x + ax.y * ax.y;
-      double bx2by2 = by.x * by.y + by.y * by.y;
-      double cx2cy2 = cz.x * cz.x + cz.y * cz.y;
+      double ax2 = ax.x * ax.x;
+      double ax_y2 = ax.y * ax.y;
+      double by2 = by.x * by.x;
+      double by_y2 = by.y * by.y;
+      double cz2 = cz.x * cz.x;
+      double cz_y2 = cz.y * cz.y;
 
-      double ux = (ax2ay2 * (by.y - cz.y) + bx2by2 * (cz.y - ax.y) + cx2cy2 * (ax.y - by.y)) / d;
-      double uy = (ax2ay2 * (cz.x - by.x) + bx2by2 * (ax.x - cz.x) + cx2cy2 * (by.x - ax.x)) / d;
+      double ux = ((ax2 + ax_y2) * (by.y - cz.y) + (by2 + by_y2) * (cz.y - ax.y) + (cz2 + cz_y2) * (ax.y - by.y)) / d;
+      double uy = ((ax2 + ax_y2) * (cz.x - by.x) + (by2 + by_y2) * (ax.x - cz.x) + (cz2 + cz_y2) * (by.x - ax.x)) / d;
 
       cc.center = {ux, uy};
       double dx = ax.x - ux;
@@ -46,14 +49,29 @@ namespace Delaunay
       return cc;
    }
 
-   static bool pointInCircumcircle(const Point &p, const Circumcircle &cc)
+   static bool pointInCircumcircle(const Point &p, const Triangle &t)
    {
-      if (!cc.valid)
-         return false;
-      double dx = p.x - cc.center.x;
-      double dy = p.y - cc.center.y;
-      double d2 = dx * dx + dy * dy;
-      return d2 <= cc.radiusSq + 1e-12;
+      double ax = t.a.x - p.x;
+      double ay = t.a.y - p.y;
+      double bx = t.b.x - p.x;
+      double by = t.b.y - p.y;
+      double cx = t.c.x - p.x;
+      double cy = t.c.y - p.y;
+
+      double det = (ax * ax + ay * ay) * (bx * cy - cx * by) -
+                   (bx * bx + by * by) * (ax * cy - cx * ay) +
+                   (cx * cx + cy * cy) * (ax * by - bx * ay);
+
+      double orientation = orient2d(t.a, t.b, t.c);
+
+      const double epsilon = 1e-12;
+
+      if (orientation > 0)
+      {
+         return det > -epsilon;
+      }
+
+      return det < epsilon;
    }
 
    struct EdgeHash
@@ -146,8 +164,7 @@ namespace Delaunay
          for (int i = 0; i < (int)triangleList.size(); i++)
          {
             auto &t = triangleList[i];
-            Circumcircle cc = getCircumcircle(t);
-            if (cc.valid && pointInCircumcircle(site, cc))
+            if (pointInCircumcircle(site, t))
             {
                badTriangles.push_back(i);
                edges.push_back({t.a, t.b});
@@ -182,15 +199,81 @@ namespace Delaunay
       }
 
       std::vector<Triangle> result;
+      const double cleanupEpsilon = 1e-9;
       for (auto &t : triangleList)
       {
-         if (pointsEqual(t.a, superTriangle.a) || pointsEqual(t.a, superTriangle.b) || pointsEqual(t.a, superTriangle.c) ||
-             pointsEqual(t.b, superTriangle.a) || pointsEqual(t.b, superTriangle.b) || pointsEqual(t.b, superTriangle.c) ||
-             pointsEqual(t.c, superTriangle.a) || pointsEqual(t.c, superTriangle.b) || pointsEqual(t.c, superTriangle.c))
+         if (pointsEqual(t.a, superTriangle.a, cleanupEpsilon) || pointsEqual(t.a, superTriangle.b, cleanupEpsilon) || pointsEqual(t.a, superTriangle.c, cleanupEpsilon) ||
+             pointsEqual(t.b, superTriangle.a, cleanupEpsilon) || pointsEqual(t.b, superTriangle.b, cleanupEpsilon) || pointsEqual(t.b, superTriangle.c, cleanupEpsilon) ||
+             pointsEqual(t.c, superTriangle.a, cleanupEpsilon) || pointsEqual(t.c, superTriangle.b, cleanupEpsilon) || pointsEqual(t.c, superTriangle.c, cleanupEpsilon))
             continue;
          result.push_back(t);
       }
 
       return result;
    }
+}
+
+bool inside(const Delaunay::Point &p, int edge, const Delaunay::BBox &box) {
+    switch (edge) {
+        case 0: return p.x >= box.minX; // left
+        case 1: return p.x <= box.maxX; // right
+        case 2: return p.y >= box.minY; // bottom
+        case 3: return p.y <= box.maxY; // top
+    }
+    return true;
+}
+
+Delaunay::Point Delaunay::intersect(const Delaunay::Point &a, const Delaunay::Point &b,
+                          int edge, const Delaunay::BBox &box) {
+    double x, y;
+    double dx = b.x - a.x, dy = b.y - a.y;
+
+    switch (edge) {
+        case 0: // left
+            x = box.minX;
+            y = a.y + dy * (box.minX - a.x) / dx;
+            break;
+        case 1: // right
+            x = box.maxX;
+            y = a.y + dy * (box.maxX - a.x) / dx;
+            break;
+        case 2: // bottom
+            y = box.minY;
+            x = a.x + dx * (box.minY - a.y) / dy;
+            break;
+        case 3: // top
+            y = box.maxY;
+            x = a.x + dx * (box.maxY - a.y) / dy;
+            break;
+         default: // should never happen
+            y = 0;
+            x = 0;
+    }
+    return {x, y};
+}
+
+std::vector<Delaunay::Point> Delaunay::clipPolygon(const std::vector<Delaunay::Point> &poly,
+                                         const BBox &box) {
+    std::vector<Delaunay::Point> output = poly;
+
+    for (int edge = 0; edge < 4; edge++) {
+        std::vector<Delaunay::Point> input = output;
+        output.clear();
+
+        if (input.empty()) break;
+
+        Delaunay::Point S = input.back();
+        for (auto &E : input) {
+            if (inside(E, edge, box)) {
+                if (!inside(S, edge, box)) {
+                    output.push_back(intersect(S, E, edge, box));
+                }
+                output.push_back(E);
+            } else if (inside(S, edge, box)) {
+                output.push_back(intersect(S, E, edge, box));
+            }
+            S = E;
+        }
+    }
+    return output;
 }

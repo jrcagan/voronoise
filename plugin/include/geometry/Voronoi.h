@@ -7,6 +7,13 @@ namespace Voronoi
 {
    using Point = juce::Point<double>;
 
-   std::vector<Delaunay::Edge> getEdges(const std::vector<Delaunay::Triangle>& tris);
-   std::map<Delaunay::Point, std::vector<Point>, Delaunay::PointComparator> getCells(const std::vector<Delaunay::Triangle> &delaunayTriangles);
+   struct Cell
+   {
+      std::vector<Point> vertices; // ordered CCW
+      bool closed = true;          // false for hull (unbounded) cells
+   };
+
+   std::vector<Delaunay::Edge> getEdges(const std::vector<Delaunay::Triangle> &tris);
+   std::map<Delaunay::Point, Voronoi::Cell, Delaunay::PointComparator> 
+      getCells(const std::vector<Delaunay::Triangle> &tris, Delaunay::BBox bbox);
 }

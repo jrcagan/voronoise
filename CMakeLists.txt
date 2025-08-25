@@ -15,6 +15,19 @@ CPMAddPackage(
    SOURCE_DIR ${LIB_DIR}/juce
 )
 
+CPMAddPackage(
+   NAME GOOGLETEST
+   GITHUB_REPOSITORY google/googletest
+   GIT_TAG v1.17.0
+   VERSION 1.17.0
+   SOURCE_DIR ${LIB_DIR}/googletest 
+   OPTIONS 
+      "INSTALL GTEST OFF"
+      "gtest_force_shared_crt ON"
+)
+
+enable_testing()
+
 if (MSVC)
    add_compile_options(/WX)
 else()
@@ -22,3 +35,4 @@ else()
 endif()
 
 add_subdirectory(plugin)
+add_subdirectory(test)

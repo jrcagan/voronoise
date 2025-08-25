@@ -45,8 +45,17 @@ namespace Delaunay
       }
    };
 
+   struct BBox
+   {
+      double minX, minY, maxX, maxY;
+   };
+
    Circumcircle getCircumcircle(const Triangle &t);
 
    std::vector<Triangle> triangulate(std::vector<Point> points);
+   Delaunay::Point intersect(const Delaunay::Point &a, const Delaunay::Point &b,
+                             int edge, const BBox &box);
+   std::vector<Delaunay::Point> clipPolygon(const std::vector<Delaunay::Point> &poly,
+                                            const BBox &box);
 
 }
