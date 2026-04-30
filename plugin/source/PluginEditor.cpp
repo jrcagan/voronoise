@@ -1,7 +1,6 @@
 #include "Voronoise/PluginEditor.h"
 #include "geometry/Delaunay.h"
 #include "geometry/Voronoi.h"
-// Note: Utils.h is included via the other headers
 
 //==============================================================================
 VoronoiseAudioProcessorEditor::VoronoiseAudioProcessorEditor(VoronoiseAudioProcessor &p)
@@ -91,7 +90,7 @@ void VoronoiseAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent &eve
     GeoUtils::Point point(event.x, event.y);
     points.push_back(point);
     repaint();
-    
+
     auto sitesTree = valueTree.getChildWithName("Sites");
     sitesTree.appendChild(
         juce::ValueTree("Site")
@@ -99,3 +98,31 @@ void VoronoiseAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent &eve
             .setProperty("y", static_cast<double>(event.y), nullptr),
         nullptr);
 }
+
+// spawns a ball anytime a midi event happens
+void VoronoiseAudioProcessorEditor::handleNoteEvent(int noteNumber, int velocity)
+{
+    juce::MessageManager::callAsync([this, noteNumber, velocity]()
+    {
+        spawnBall(noteNumber, velocity);
+    });
+}
+
+void VoronoiseAudioProcessorEditor::spawnBall(int noteNumber, int velocity) 
+{
+    Ball ball;
+
+    auto sitesTree = valueTree.getChildWithName("Sites");
+    int idx = std::rand() % sitesTree.getNumChildren();
+
+    auto point = sitesTree.getChild(idx);
+    ball.setX(static_cast<float>(point.getProperty("x")));
+    ball.setY(static_cast<float>(point.getProperty("y")));
+    ball.radius = 2.0;
+    // now write code to actually have the ball contain the specified note number and velocity 
+    ball.velocity = static_cast<float>(velocity);
+    ball.frequency = AudioUtils::getFreq(noteNumber);
+}
+
+
+

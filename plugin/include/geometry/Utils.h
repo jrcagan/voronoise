@@ -1,7 +1,7 @@
 #pragma once
 #include <juce_graphics/juce_graphics.h>
 #include <vector>
-#include <cmath> // Required for std::abs
+#include <cmath>
 
 namespace GeoUtils
 {
@@ -77,4 +77,9 @@ namespace GeoUtils
 
    bool clipEdge(Edge &edge, const BBox &box);
    std::vector<Point> clipPolygon(const std::vector<Point> &poly, const BBox &box);
+}
+
+namespace AudioUtils 
+{
+   float getFreq(int noteNum);
 }

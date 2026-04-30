@@ -145,6 +145,23 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     synth.processBlock(buffer,midiMessages);
 
+    // handles 
+    for (const auto metadata : midiMessages)
+    {
+        const auto msg = metadata.getMessage();
+        if (msg.isNoteOn())
+        {
+            int noteNumber = msg.getNoteNumber();
+            int velocity = msg.getVelocity();
+
+            if (auto* editor = dynamic_cast<VoronoiseAudioProcessorEditor*>(getActiveEditor()))
+            {
+                editor->handleNoteEvent(noteNumber, velocity);
+            }
+        }
+    }
+
+    // for future dsp implementations
     auto newDSPOrder = DSP_Order();
 
     while(dspOrderFifo.pull(newDSPOrder)) {

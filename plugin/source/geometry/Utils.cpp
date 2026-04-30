@@ -167,3 +167,11 @@ namespace GeoUtils
       return output;
    }
 }
+
+namespace AudioUtils
+{
+   float getFreq(int noteNum) {
+      float pow = static_cast<float>(std::pow(2.0, static_cast<double>(noteNum - 69) / 12.0));
+      return 440.f * pow;
+   }
+}

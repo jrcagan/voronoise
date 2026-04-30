@@ -2,9 +2,9 @@
 
 #include <JuceHeader.h>
 
-class Ball : juce::Point {
+class Ball : public juce::Point<float> {
 
-private:
+public:
    juce::Colour color;
 
    float radius;
@@ -14,4 +14,4 @@ private:
    float frequency; // frequency of its associated note
 
    float timeLeftAlive;
-}
+};
