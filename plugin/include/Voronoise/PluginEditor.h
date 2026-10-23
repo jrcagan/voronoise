@@ -7,6 +7,8 @@
 #include "geometry/Utils.h"
 #include "geometry/Voronoi.h"
 #include "primitives/Ball.h"
+#include "Voronoise/Params.h"
+#include "Voronoise/SettingsPanel.h"
 
 
 //==============================================================================
@@ -36,6 +38,19 @@ public:
     void setMode(Mode newMode);
     Mode getMode() const { return mode; }
 
+    // sound new balls make when they hit an edge
+    void setSound(Waveform newSound);
+    Waveform getSound() const { return sound; }
+
+    // note a hand dropped ball plays, higher on screen is higher pitch
+    int getNoteForHeight(float y) const;
+
+    // picks up setting changes and state swaps (loading a project), runs on the timer
+    void syncWithProcessor();
+
+    void setSettingsVisible(bool shouldBeVisible);
+    bool isSettingsVisible() const;
+
     const std::vector<Ball>& getBalls() const { return balls; }
     const std::vector<GeoUtils::Edge>& getEdges() const { return edges; }
 
@@ -47,12 +62,17 @@ private:
     // recomputes the triangulation/voronoi from the sites, only when they or the size change
     void rebuildGeometry();
     void addBall(Ball ball);
+    // size, speed, lifetime, note and colour from the settings
+    void setupBall(Ball& ball, int noteNumber, float sizeScale);
+
+    Params::Lines getLinesSetting() const;
+    Ball::Physics getPhysics();
 
     VoronoiseAudioProcessor& processorRef;
     std::vector<GeoUtils::Point> points;
     std::vector<GeoUtils::Triangle> triangles;
     std::map<GeoUtils::Point, Voronoi::Cell, GeoUtils::PointComparator> voronoiCells;
-    std::vector<GeoUtils::Edge> edges; // voronoi edges the balls bounce off
+    std::vector<GeoUtils::Edge> edges; // voronoi + delaunay edges the balls bounce off and play on
     std::vector<Ball> balls;
     juce::ValueTree valueTree;
 
@@ -60,10 +80,20 @@ private:
     juce::TextButton drawButton { "Draw" };
     juce::TextButton ballButton { "Ball" };
 
+    Waveform sound = Waveform::Sine;
+    juce::ComboBox soundBox;
+    juce::TextButton loadSampleButton { "Load sample" };
+    std::unique_ptr<juce::FileChooser> fileChooser;
+    void chooseSample();
+    void updateSampleButtonText();
+
+    juce::TextButton settingsButton { "Settings" };
+    std::unique_ptr<Settings::SettingsPanel> settingsPanel;
+
+    Params::Lines lines = Params::Lines::Both;
+
     juce::Random random;
     double lastTimerMs = 0.0;
-
-    static constexpr size_t MAX_BALLS = 200;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessorEditor)
 };

@@ -159,7 +159,7 @@ TEST(EditorBallTest, EdgesFollowSites)
       for (const auto &ball : e.getBalls())
       {
          ASSERT_TRUE(std::isfinite(ball.getX()) && std::isfinite(ball.getY()));
-         EXPECT_TRUE(juce::Rectangle<float>(0.f, 0.f, 400.f, 300.f).expanded(0.01f).contains(ball.getX(), ball.getY()));
+         EXPECT_TRUE(e.getLocalBounds().toFloat().expanded(0.01f).contains(ball.getX(), ball.getY()));
       }
    }
 

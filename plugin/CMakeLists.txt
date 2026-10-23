@@ -20,20 +20,30 @@ set(SOURCE_FILES source/PluginEditor.cpp
                  source/PluginProcessor.cpp 
                  source/synth/WavetableOscillator.cpp 
                  source/synth/WavetableSynth.cpp
+                 source/synth/HitSynth.cpp
                  source/geometry/Utils.cpp 
                  source/geometry/Delaunay.cpp 
                  source/geometry/Voronoi.cpp
-                 source/primitives/Ball.cpp)
+                 source/primitives/Ball.cpp
+                 source/synth/Scale.cpp
+                 source/synth/Sample.cpp
+                 source/SettingsPanel.cpp)
 
 set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h 
                  ${INCLUDE_DIR}/Voronoise/PluginProcessor.h 
                  ${INCLUDE_DIR}/synth/WavetableOscillator.h 
                  ${INCLUDE_DIR}/synth/WavetableSynth.h
+                 ${INCLUDE_DIR}/synth/HitSynth.h
+                 ${INCLUDE_DIR}/synth/Waveform.h
                  ${INCLUDE_DIR}/DSP/Fifo.h
                  ${INCLUDE_DIR}/geometry/Utils.h
                  ${INCLUDE_DIR}/geometry/Delaunay.h
                  ${INCLUDE_DIR}/geometry/Voronoi.h
-                 ${INCLUDE_DIR}/primitives/Ball.h)
+                 ${INCLUDE_DIR}/primitives/Ball.h
+                 ${INCLUDE_DIR}/synth/Scale.h
+                 ${INCLUDE_DIR}/synth/Sample.h
+                 ${INCLUDE_DIR}/Voronoise/Params.h
+                 ${INCLUDE_DIR}/Voronoise/SettingsPanel.h)
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 

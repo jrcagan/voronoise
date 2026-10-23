@@ -2,7 +2,11 @@
 
 #include <JuceHeader.h>
 #include "synth/WavetableSynth.h"
+#include "synth/HitSynth.h"
+#include "synth/Scale.h"
 #include "DSP/Fifo.h"
+#include "primitives/Ball.h"
+#include "Voronoise/Params.h"
 
 //==============================================================================
 class VoronoiseAudioProcessor final : public juce::AudioProcessor
@@ -77,6 +81,21 @@ public:
         int velocity = 0;
     };
     SimpleMBComp::Fifo<NoteEvent, 128> noteEventFifo;
+
+    // ball hits go the other way, editor -> audio thread
+    SimpleMBComp::Fifo<HitSynth::Hit, 256> hitFifo;
+
+    // call from the message thread, returns false if the file couldn't be read
+    bool loadSample(const juce::File& file);
+    juce::String getSampleName() const;
+    juce::String getSampleWildcard();
+    SampleData::Ptr getCurrentSample() const; // message thread only
+
+    // current settings pane values, safe to call from any thread
+    float getParamValue(juce::StringRef id) const;
+    Scale::Settings getNoteSettings() const;
+    SampleSlicer::Settings getSliceSettings() const;
+    HitSynth::Settings getSoundSettings() const;
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessor)
@@ -101,6 +120,13 @@ private:
     };
 
     WavetableSynth synth;
+    HitSynth hitSynth;
+
+    juce::AudioFormatManager formatManager;
+    SimpleMBComp::Fifo<HitSynth::SampleData::Ptr, 8> sampleFifo;
+    // keeps every loaded sample alive until the audio thread is done with it,
+    // so nothing ever gets freed on the audio thread
+    juce::ReferenceCountedArray<HitSynth::SampleData> loadedSamples;
     DSP_Choice<juce::dsp::Phaser<float>> phaser;
     DSP_Choice<juce::dsp::Reverb> reverb;
     DSP_Choice<juce::dsp::LadderFilter<float>> filter;
