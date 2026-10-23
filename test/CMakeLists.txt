@@ -10,6 +10,7 @@ add_executable(${PROJECT_NAME}
    BallTests.cpp
    HitSynthTests.cpp
    SettingsTests.cpp
+   LfoTests.cpp
 )
 
 target_include_directories(${PROJECT_NAME}

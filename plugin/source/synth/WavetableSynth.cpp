@@ -18,9 +18,41 @@ void WavetableSynth::initializeOscillators() {
    const auto waveTable = generateSineWavetable(64);
 
    oscillators.clear();
+   envelopes.assign(OSCILLATORS_COUNT, juce::ADSR());
+   velocities.assign(OSCILLATORS_COUNT, 0.f);
    for(int i = 0; i < OSCILLATORS_COUNT; i++) {
       oscillators.emplace_back(waveTable, sampleRate);
+      envelopes[static_cast<size_t>(i)].setSampleRate(sampleRate);
+      envelopes[static_cast<size_t>(i)].setParameters(envelopeParameters);
    }
+}
+
+void WavetableSynth::setEnvelope(const juce::ADSR::Parameters& parameters) {
+   // only touch the envelopes when something changed, it recalculates their rates
+   const auto& p = envelopeParameters;
+   if (juce::approximatelyEqual(p.attack, parameters.attack) && juce::approximatelyEqual(p.decay, parameters.decay)
+       && juce::approximatelyEqual(p.sustain, parameters.sustain) && juce::approximatelyEqual(p.release, parameters.release)) {
+      return;
+   }
+
+   envelopeParameters = parameters;
+   for (auto& envelope : envelopes) {
+      envelope.setParameters(envelopeParameters);
+   }
+}
+
+void WavetableSynth::setLevel(float gain) {
+   level = gain;
+}
+
+int WavetableSynth::getNumActiveNotes() const {
+   int count = 0;
+   for (const auto& envelope : envelopes) {
+      if (envelope.isActive()) {
+         count++;
+      }
+   }
+   return count;
 }
 
 void WavetableSynth::prepareToPlay(double newSampleRate) {
@@ -48,11 +80,21 @@ void WavetableSynth::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 void WavetableSynth::render(juce::AudioBuffer<float>& buffer, int startSample, int endSample) {
    auto* firstChannel = buffer.getWritePointer(0);
 
-   for (auto& oscillator: oscillators) {
-      if (oscillator.isPlaying()) {
-         for (int s = startSample; s < endSample; s++) {
-            firstChannel[s] += oscillator.getSample();
-         }
+   for (size_t i = 0; i < oscillators.size(); i++) {
+      auto& oscillator = oscillators[i];
+      auto& envelope = envelopes[i];
+      if (! oscillator.isPlaying()) {
+         continue;
+      }
+
+      const float gain = velocities[i] * level;
+      for (int s = startSample; s < endSample; s++) {
+         firstChannel[s] += oscillator.getSample() * envelope.getNextSample() * gain;
+      }
+
+      // release finished, the note's done
+      if (! envelope.isActive()) {
+         oscillator.stop();
       }
    }
 
@@ -72,14 +114,18 @@ void WavetableSynth::handleMidiEvent(const juce::MidiMessage& midiEvent) {
       const auto oscillatorId = midiEvent.getNoteNumber();
       const auto frequency = midiNoteNumberToFrequency(oscillatorId);
       oscillators[oscillatorId].setFrequency(frequency);
+      velocities[static_cast<size_t>(oscillatorId)] = midiEvent.getFloatVelocity();
+      envelopes[static_cast<size_t>(oscillatorId)].noteOn();
 
    } else if (midiEvent.isNoteOff()) {
+      // keeps playing through the release, render stops it once that's done
       const auto oscillatorId = midiEvent.getNoteNumber();
-      oscillators[oscillatorId].stop();
+      envelopes[static_cast<size_t>(oscillatorId)].noteOff();
 
    } else if (midiEvent.isAllNotesOff()) {
-      for (auto& oscillator : oscillators) {
-         oscillator.stop();
+      for (size_t i = 0; i < oscillators.size(); i++) {
+         oscillators[i].stop();
+         envelopes[i].reset();
       }
    }
 

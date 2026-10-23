@@ -17,6 +17,26 @@ VoronoiseAudioProcessor::VoronoiseAudioProcessor()
     apvts.state.addChild({ "Sites", {}, {} }, -1, nullptr);
 
     formatManager.registerBasicFormats();
+
+    // per parameter modulation slots, indexed the same as getParameters()
+    const auto& params = getParameters();
+    numParams = params.size();
+    modOffsets = std::make_unique<std::atomic<float>[]>(static_cast<size_t>(numParams));
+    offsetScratch.resize(static_cast<size_t>(numParams), 0.f);
+    for (auto* param : params)
+    {
+        modOffsets[static_cast<size_t>(param->getParameterIndex())].store(0.f);
+        isDiscrete.push_back(dynamic_cast<juce::AudioParameterFloat*>(param) == nullptr);
+    }
+
+    for (int lfo = 0; lfo < Params::NUM_LFOS; lfo++)
+    {
+        lfoIDs[static_cast<size_t>(lfo)] = { Params::lfoRate(lfo), Params::lfoSync(lfo), Params::lfoDivision(lfo),
+                                             Params::lfoMode(lfo), Params::lfoPhase(lfo), Params::lfoSmooth(lfo) };
+    }
+
+    loadLfoShapesFromState();
+    rebuildRoutes();
 }
 
 VoronoiseAudioProcessor::~VoronoiseAudioProcessor()
@@ -93,6 +113,7 @@ void VoronoiseAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    currentSampleRate = sampleRate;
     synth.prepareToPlay(sampleRate);
     hitSynth.prepareToPlay(sampleRate);
 
@@ -167,6 +188,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
 
     // view
     addChoice(Params::LINES, "Lines", Params::getLinesNames(), 0);
+    addChoice(Params::BALL_SOUND, "Ball sound", getWaveformNames(), 0);
+
+    // lfos
+    for (int lfo = 0; lfo < Params::NUM_LFOS; lfo++)
+    {
+        const auto prefix = "LFO " + String(lfo + 1) + " ";
+        layout.add(std::make_unique<AudioParameterFloat>(ParameterID { Params::lfoRate(lfo), 1 }, prefix + "rate",
+                                                         NormalisableRange<float> { 0.01f, 20.f, 0.001f, 0.3f }, 1.f,
+                                                         AudioParameterFloatAttributes().withLabel("Hz")));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { Params::lfoSync(lfo), 1 }, prefix + "sync", false));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { Params::lfoDivision(lfo), 1 }, prefix + "division",
+                                                          Params::getLfoDivisionNames(), 4));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { Params::lfoMode(lfo), 1 }, prefix + "mode",
+                                                          Params::getLfoModeNames(), 0));
+        layout.add(std::make_unique<AudioParameterFloat>(ParameterID { Params::lfoPhase(lfo), 1 }, prefix + "phase",
+                                                         NormalisableRange<float> { 0.f, 1.f, 0.001f }, 0.f));
+        layout.add(std::make_unique<AudioParameterFloat>(ParameterID { Params::lfoSmooth(lfo), 1 }, prefix + "smooth",
+                                                         NormalisableRange<float> { 0.f, 1.f, 0.001f }, 0.f));
+    }
 
     // balls
     addFloat(Params::GRAVITY, "Gravity", { 0.f, 3000.f, 1.f }, Ball::GRAVITY, "px/s2");
@@ -197,6 +237,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
                                                          NormalisableRange<float> { 0.f, 1.f, 0.01f }, 1.f));
     }
 
+    // amp envelope, skewed so the short times get most of the knob
+    addFloat(Params::AMP_ATTACK, "Attack", { 0.f, 5000.f, 0.1f, 0.3f }, 5.f, "ms");
+    addFloat(Params::AMP_DECAY, "Decay", { 1.f, 5000.f, 0.1f, 0.3f }, 200.f, "ms");
+    addFloat(Params::AMP_SUSTAIN, "Sustain", { 0.f, 1.f, 0.01f }, 0.8f);
+    addFloat(Params::AMP_RELEASE, "Release", { 1.f, 10000.f, 0.1f, 0.3f }, 300.f, "ms");
+    addFloat(Params::KEYS_LEVEL, "Keys level", { -60.f, 6.f, 0.1f, 2.f }, -6.f, "dB");
+
     // sound
     addFloat(Params::PULSE_WIDTH, "Pulse width", { 0.05f, 0.95f, 0.01f }, 0.5f);
     addFloat(Params::SAMPLE_START, "Start", { 0.f, 1.f, 0.001f }, 0.f);
@@ -219,9 +266,237 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
 
 float VoronoiseAudioProcessor::getParamValue(juce::StringRef id) const
 {
+    auto* param = apvts.getParameter(id);
+    jassert(param != nullptr); // typo in a param id
+    if (param == nullptr)
+        return 0.f;
+
+    const auto index = static_cast<size_t>(param->getParameterIndex());
+    const float value = param->convertFrom0to1(getModulatedNormalised(id));
+    return isDiscrete[index] ? std::round(value) : value;
+}
+
+float VoronoiseAudioProcessor::getBaseValue(juce::StringRef id) const
+{
     auto* value = apvts.getRawParameterValue(id);
     jassert(value != nullptr); // typo in a param id
     return value != nullptr ? value->load() : 0.f;
+}
+
+float VoronoiseAudioProcessor::getModulatedNormalised(juce::StringRef id) const
+{
+    auto* param = apvts.getParameter(id);
+    if (param == nullptr)
+        return 0.f;
+
+    const auto index = static_cast<size_t>(param->getParameterIndex());
+    return juce::jlimit(0.f, 1.f, param->getValue() + modOffsets[index].load(std::memory_order_relaxed));
+}
+
+//==============================================================================
+std::vector<VoronoiseAudioProcessor::Modulation> VoronoiseAudioProcessor::getModulations() const
+{
+    std::vector<Modulation> mods;
+    const auto tree = apvts.state.getChildWithName("Modulations");
+    for (int i = 0; i < tree.getNumChildren(); i++)
+    {
+        const auto mod = tree.getChild(i);
+        mods.push_back({ static_cast<int>(mod["lfo"]), mod["param"].toString(), static_cast<float>(mod["depth"]) });
+    }
+    return mods;
+}
+
+std::vector<VoronoiseAudioProcessor::Modulation> VoronoiseAudioProcessor::getModulationsFor(const juce::String& paramID) const
+{
+    std::vector<Modulation> mods;
+    for (auto& mod : getModulations())
+        if (mod.paramID == paramID)
+            mods.push_back(mod);
+    return mods;
+}
+
+void VoronoiseAudioProcessor::addModulation(int lfo, const juce::String& paramID, float depth)
+{
+    if (lfo < 0 || lfo >= Params::NUM_LFOS || apvts.getParameter(paramID) == nullptr)
+        return;
+
+    auto tree = apvts.state.getOrCreateChildWithName("Modulations", nullptr);
+    if (tree.getNumChildren() >= MAX_MODULATIONS)
+        return;
+
+    // dropping the same lfo on the same knob twice doesn't stack
+    for (int i = 0; i < tree.getNumChildren(); i++)
+        if (static_cast<int>(tree.getChild(i)["lfo"]) == lfo && tree.getChild(i)["param"].toString() == paramID)
+            return;
+
+    tree.appendChild(juce::ValueTree("Mod")
+                         .setProperty("lfo", lfo, nullptr)
+                         .setProperty("param", paramID, nullptr)
+                         .setProperty("depth", juce::jlimit(-1.f, 1.f, depth), nullptr),
+                     nullptr);
+    rebuildRoutes();
+}
+
+void VoronoiseAudioProcessor::setModulationDepth(int lfo, const juce::String& paramID, float depth)
+{
+    auto tree = apvts.state.getChildWithName("Modulations");
+    for (int i = 0; i < tree.getNumChildren(); i++)
+    {
+        auto mod = tree.getChild(i);
+        if (static_cast<int>(mod["lfo"]) == lfo && mod["param"].toString() == paramID)
+            mod.setProperty("depth", juce::jlimit(-1.f, 1.f, depth), nullptr);
+    }
+    rebuildRoutes();
+}
+
+void VoronoiseAudioProcessor::removeModulation(int lfo, const juce::String& paramID)
+{
+    auto tree = apvts.state.getChildWithName("Modulations");
+    for (int i = tree.getNumChildren(); --i >= 0;)
+    {
+        auto mod = tree.getChild(i);
+        if (static_cast<int>(mod["lfo"]) == lfo && mod["param"].toString() == paramID)
+            tree.removeChild(i, nullptr);
+    }
+    rebuildRoutes();
+}
+
+void VoronoiseAudioProcessor::rebuildRoutes()
+{
+    std::vector<Route> newRoutes;
+    for (const auto& mod : getModulations())
+    {
+        if (auto* param = apvts.getParameter(mod.paramID))
+            newRoutes.push_back({ juce::jlimit(0, Params::NUM_LFOS - 1, mod.lfo), param->getParameterIndex(), mod.depth });
+    }
+
+    {
+        const juce::SpinLock::ScopedLockType lock(routeLock);
+        routes.swap(newRoutes);
+    }
+
+    // with no audio running nothing would clear these, so zero anything that lost its route
+    std::vector<bool> routed(static_cast<size_t>(numParams), false);
+    for (const auto& route : routes)
+        routed[static_cast<size_t>(route.paramIndex)] = true;
+    for (int i = 0; i < numParams; i++)
+        if (! routed[static_cast<size_t>(i)])
+            modOffsets[static_cast<size_t>(i)].store(0.f);
+
+    modulationVersion++;
+}
+
+const LfoShape& VoronoiseAudioProcessor::getLfoShape(int lfo) const
+{
+    return lfoShapes[static_cast<size_t>(juce::jlimit(0, Params::NUM_LFOS - 1, lfo))];
+}
+
+void VoronoiseAudioProcessor::setLfoShape(int lfo, const LfoShape& shape)
+{
+    if (lfo < 0 || lfo >= Params::NUM_LFOS)
+        return;
+
+    const auto index = static_cast<size_t>(lfo);
+    lfoShapes[index] = shape;
+    lfoTables[index].fill(shape);
+
+    // saved with the project
+    auto shapes = apvts.state.getOrCreateChildWithName("LfoShapes", nullptr);
+    while (shapes.getNumChildren() < Params::NUM_LFOS)
+        shapes.appendChild(LfoShape().toValueTree(), nullptr);
+    shapes.removeChild(lfo, nullptr);
+    shapes.addChild(shape.toValueTree(), lfo, nullptr);
+}
+
+void VoronoiseAudioProcessor::loadLfoShapesFromState()
+{
+    const auto shapes = apvts.state.getChildWithName("LfoShapes");
+
+    // different starting shapes so the three are easy to tell apart
+    constexpr LfoShape::Preset DEFAULTS[] = { LfoShape::Preset::Sine, LfoShape::Preset::Triangle, LfoShape::Preset::SawDown };
+
+    for (int lfo = 0; lfo < Params::NUM_LFOS; lfo++)
+    {
+        LfoShape shape;
+        shape.setPreset(DEFAULTS[lfo]);
+        if (lfo < shapes.getNumChildren())
+            shape.fromValueTree(shapes.getChild(lfo));
+        setLfoShape(lfo, shape);
+    }
+}
+
+float VoronoiseAudioProcessor::getLfoOutput(int lfo) const
+{
+    return lfoOutputs[static_cast<size_t>(juce::jlimit(0, Params::NUM_LFOS - 1, lfo))].load(std::memory_order_relaxed);
+}
+
+float VoronoiseAudioProcessor::getLfoPhase(int lfo) const
+{
+    return lfoPhases[static_cast<size_t>(juce::jlimit(0, Params::NUM_LFOS - 1, lfo))].load(std::memory_order_relaxed);
+}
+
+void VoronoiseAudioProcessor::updateLfos(int numSamples, bool noteStarted)
+{
+    const double blockSeconds = numSamples / currentSampleRate;
+
+    double bpm = 120.0;
+    if (auto* playHead = getPlayHead())
+        if (auto position = playHead->getPosition())
+            if (auto hostBpm = position->getBpm())
+                bpm = *hostBpm;
+
+    for (size_t lfo = 0; lfo < static_cast<size_t>(Params::NUM_LFOS); lfo++)
+    {
+        const auto& ids = lfoIDs[lfo];
+        auto& runtime = lfoRuntime[lfo];
+
+        const auto mode = static_cast<Params::LfoMode>(static_cast<int>(getParamValue(ids.mode)));
+        if (noteStarted && mode != Params::LfoMode::Free)
+            runtime.phase = 0.0;
+
+        const bool synced = getParamValue(ids.sync) > 0.5f;
+        const double frequency = synced ? (bpm / 60.0) / Params::getLfoDivisionBeats(static_cast<int>(getParamValue(ids.division)))
+                                        : static_cast<double>(getParamValue(ids.rate));
+
+        const double offset = getParamValue(ids.phase);
+        double shownPhase;
+
+        if (mode == Params::LfoMode::Envelope)
+        {
+            // runs from the phase offset to the end once, then holds
+            runtime.phase = juce::jmin(1.0, runtime.phase + frequency * blockSeconds);
+            shownPhase = juce::jmin(1.0, offset + runtime.phase * (1.0 - offset));
+        }
+        else
+        {
+            runtime.phase = std::fmod(runtime.phase + frequency * blockSeconds, 1.0);
+            shownPhase = std::fmod(runtime.phase + offset, 1.0);
+        }
+
+        const float target = lfoTables[lfo].lookup(static_cast<float>(shownPhase));
+
+        // smooth 1 = a quarter second to catch up
+        const double smoothTime = getParamValue(ids.smooth) * 0.25;
+        if (smoothTime < 1e-4)
+            runtime.smoothed = target;
+        else
+            runtime.smoothed += (target - runtime.smoothed) * static_cast<float>(1.0 - std::exp(-blockSeconds / smoothTime));
+
+        lfoOutputs[lfo].store(runtime.smoothed, std::memory_order_relaxed);
+        lfoPhases[lfo].store(static_cast<float>(shownPhase), std::memory_order_relaxed);
+    }
+
+    // if the message thread is busy changing routes, keep last block's offsets
+    const juce::SpinLock::ScopedTryLockType lock(routeLock);
+    if (! lock.isLocked())
+        return;
+
+    std::fill(offsetScratch.begin(), offsetScratch.end(), 0.f);
+    for (const auto& route : routes)
+        offsetScratch[static_cast<size_t>(route.paramIndex)] += route.depth * lfoOutputs[static_cast<size_t>(route.lfo)].load(std::memory_order_relaxed);
+
+    for (const auto& route : routes)
+        modOffsets[static_cast<size_t>(route.paramIndex)].store(offsetScratch[static_cast<size_t>(route.paramIndex)], std::memory_order_relaxed);
 }
 
 Scale::Settings VoronoiseAudioProcessor::getNoteSettings() const
@@ -279,17 +554,30 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     buffer.clear();
 
+    // on-screen keyboard notes join the incoming midi so they play and drop balls the same way
+    keyboardState.processNextMidiBuffer(midiMessages, 0, buffer.getNumSamples(), true);
+
+    // last block's lfo values, the envelope is set before this block's lfos run
+    synth.setEnvelope({ getParamValue(Params::AMP_ATTACK) * 0.001f, getParamValue(Params::AMP_DECAY) * 0.001f,
+                        getParamValue(Params::AMP_SUSTAIN), getParamValue(Params::AMP_RELEASE) * 0.001f });
+    synth.setLevel(juce::Decibels::decibelsToGain(getParamValue(Params::KEYS_LEVEL), -59.9f));
+
     synth.processBlock(buffer,midiMessages);
 
     // handles note-ons for the editor, which picks them up on its timer
+    bool noteStarted = false;
     for (const auto metadata : midiMessages)
     {
         const auto msg = metadata.getMessage();
         if (msg.isNoteOn())
         {
             noteEventFifo.push({ msg.getNoteNumber(), msg.getVelocity() });
+            noteStarted = true;
         }
     }
+
+    // lfos first so everything below reads this block's modulated values
+    updateLfos(buffer.getNumSamples(), noteStarted);
 
     // reading the params is just a few atomic loads, so it's fine to do every block
     hitSynth.setSettings(getSoundSettings());
@@ -431,6 +719,9 @@ void VoronoiseAudioProcessor::setStateInformation (const void* data, int sizeInB
 
     if (! apvts.state.getChildWithName("Sites").isValid())
         apvts.state.addChild({ "Sites", {}, {} }, -1, nullptr);
+
+    loadLfoShapesFromState();
+    rebuildRoutes();
 
     const juce::File sampleFile (apvts.state.getProperty("samplePath").toString());
     if (sampleFile.existsAsFile())

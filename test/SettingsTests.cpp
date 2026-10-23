@@ -61,19 +61,21 @@ namespace
       juce::ScopedJuceInitialiser_GUI juceInit;
       VoronoiseAudioProcessor processor;
       std::unique_ptr<juce::AudioProcessorEditor> editor;
-      VoronoiseAudioProcessorEditor *e = nullptr;
+      VoronoiseAudioProcessorEditor *editorPtr = nullptr;
+      UI::Canvas *e = nullptr;
 
       EditorFixture()
       {
          processor.prepareToPlay(SAMPLE_RATE, 512);
          editor.reset(processor.createEditor());
-         e = dynamic_cast<VoronoiseAudioProcessorEditor *>(editor.get());
+         editorPtr = dynamic_cast<VoronoiseAudioProcessorEditor *>(editor.get());
+         e = &editorPtr->getCanvas();
       }
 
       void addSites()
       {
          auto sites = processor.getValueTree().getChildWithName("Sites");
-         for (auto [x, y] : { std::pair{ 120.0, 120.0 }, { 600.0, 140.0 }, { 380.0, 380.0 }, { 100.0, 420.0 }, { 650.0, 430.0 } })
+         for (auto [x, y] : { std::pair{ 120.0, 90.0 }, { 600.0, 105.0 }, { 380.0, 285.0 }, { 100.0, 315.0 }, { 650.0, 322.0 } })
             sites.appendChild(juce::ValueTree("Site").setProperty("x", x, nullptr).setProperty("y", y, nullptr), nullptr);
       }
 
@@ -484,20 +486,26 @@ TEST(EditorSettingsTest, NoteSettingsApplyToBalls)
    EXPECT_EQ(f.e->getBalls().back().noteNumber % 12, 4);
 }
 
-TEST(EditorSettingsTest, SettingsPanelOpensAndCloses)
+TEST(EditorSettingsTest, WholePanelPaints)
 {
    EditorFixture f;
-   EXPECT_FALSE(f.e->isSettingsVisible());
-   f.e->setSettingsVisible(true);
-   EXPECT_TRUE(f.e->isSettingsVisible());
+   f.addSites();
 
-   // the panel paints fine with and without a sample
-   juce::Image image(juce::Image::ARGB, f.e->getWidth(), f.e->getHeight(), true);
-   juce::Graphics g(image);
-   f.e->paintEntireComponent(g, false);
-
-   f.e->setSettingsVisible(false);
-   EXPECT_FALSE(f.e->isSettingsVisible());
+   // every page and lfo, with and without a modulation on screen
+   auto &panel = f.editorPtr->getMainPanel();
+   f.processor.addModulation(1, Params::GRAVITY, 0.4f);
+   for (auto page : { UI::MainPanel::Page::Balls, UI::MainPanel::Page::Notes, UI::MainPanel::Page::Sample })
+   {
+      panel.showPage(page);
+      for (int lfo = 0; lfo < Params::NUM_LFOS; lfo++)
+      {
+         panel.getLfoPanel().selectLfo(lfo);
+         juce::Image image(juce::Image::ARGB, f.editorPtr->getWidth(), f.editorPtr->getHeight(), true);
+         juce::Graphics g(image);
+         f.editorPtr->paintEntireComponent(g, false);
+      }
+   }
+   EXPECT_EQ(panel.getPage(), UI::MainPanel::Page::Sample);
 }
 
 //==============================================================================
@@ -539,7 +547,7 @@ TEST(StateTest, SettingsSitesAndSampleSurviveSaveAndLoad)
    {
       std::unique_ptr<juce::AudioProcessorEditor> editor(restored.createEditor());
       restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
-      dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).syncWithProcessor();
+      dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas().syncWithProcessor();
       restored.getValueTree().getChildWithName("Sites").appendChild(
           juce::ValueTree("Site").setProperty("x", 300.0, nullptr).setProperty("y", 200.0, nullptr), nullptr);
    }

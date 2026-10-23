@@ -27,7 +27,13 @@ set(SOURCE_FILES source/PluginEditor.cpp
                  source/primitives/Ball.cpp
                  source/synth/Scale.cpp
                  source/synth/Sample.cpp
-                 source/SettingsPanel.cpp)
+                 source/synth/Lfo.cpp
+                 source/ui/Theme.cpp
+                 source/ui/ParamControl.cpp
+                 source/ui/LfoPanel.cpp
+                 source/ui/SampleView.cpp
+                 source/ui/Canvas.cpp
+                 source/ui/MainPanel.cpp)
 
 set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h 
                  ${INCLUDE_DIR}/Voronoise/PluginProcessor.h 
@@ -42,8 +48,14 @@ set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h
                  ${INCLUDE_DIR}/primitives/Ball.h
                  ${INCLUDE_DIR}/synth/Scale.h
                  ${INCLUDE_DIR}/synth/Sample.h
+                 ${INCLUDE_DIR}/synth/Lfo.h
                  ${INCLUDE_DIR}/Voronoise/Params.h
-                 ${INCLUDE_DIR}/Voronoise/SettingsPanel.h)
+                 ${INCLUDE_DIR}/Voronoise/ui/Theme.h
+                 ${INCLUDE_DIR}/Voronoise/ui/ParamControl.h
+                 ${INCLUDE_DIR}/Voronoise/ui/LfoPanel.h
+                 ${INCLUDE_DIR}/Voronoise/ui/SampleView.h
+                 ${INCLUDE_DIR}/Voronoise/ui/Canvas.h
+                 ${INCLUDE_DIR}/Voronoise/ui/MainPanel.h)
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 

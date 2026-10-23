@@ -113,11 +113,11 @@ TEST(EditorBallTest, ModeControlsWhatClicksDo)
    juce::ScopedJuceInitialiser_GUI juceInit;
    VoronoiseAudioProcessor processor;
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
-   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor);
+   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
 
-   EXPECT_EQ(e.getMode(), VoronoiseAudioProcessorEditor::Mode::DrawSites);
+   EXPECT_EQ(e.getMode(), UI::Canvas::Mode::DrawSites);
 
-   e.setMode(VoronoiseAudioProcessorEditor::Mode::DropBalls);
+   e.setMode(UI::Canvas::Mode::DropBalls);
    e.dropBall({ 100.f, 100.f });
    e.dropBall({ 200.f, 100.f });
    EXPECT_EQ(e.getBalls().size(), 2u);
@@ -137,7 +137,7 @@ TEST(EditorBallTest, EdgesFollowSites)
    juce::ScopedJuceInitialiser_GUI juceInit;
    VoronoiseAudioProcessor processor;
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
-   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor);
+   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
 
    EXPECT_TRUE(e.getEdges().empty());
 

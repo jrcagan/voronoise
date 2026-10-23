@@ -178,7 +178,7 @@ TEST(EditorHitTest, BallsHittingTheBorderMakeSoundWithNoSites)
    VoronoiseAudioProcessor processor;
    processor.prepareToPlay(48000.0, 512);
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
-   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor);
+   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
 
    ASSERT_TRUE(e.getEdges().empty());
    e.dropBall({ 200.f, 30.f });
@@ -220,7 +220,7 @@ TEST(EditorHitTest, BallsHittingEdgesMakeSoundThroughTheProcessor)
    VoronoiseAudioProcessor processor;
    processor.prepareToPlay(48000.0, 512);
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
-   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor);
+   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
 
    auto sites = processor.getValueTree().getChildWithName("Sites");
    for (auto [x, y] : { std::pair{ 80.0, 80.0 }, { 300.0, 90.0 }, { 200.0, 220.0 }, { 60.0, 250.0 } })
@@ -290,7 +290,7 @@ TEST(EditorHitTest, DroppedBallPitchFollowsHeight)
    juce::ScopedJuceInitialiser_GUI juceInit;
    VoronoiseAudioProcessor processor;
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
-   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor);
+   auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
 
    const float bottom = static_cast<float>(e.getHeight()) - 1.f;
    EXPECT_GT(e.getNoteForHeight(10.f), e.getNoteForHeight(bottom - 10.f));

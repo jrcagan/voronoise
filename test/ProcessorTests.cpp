@@ -57,9 +57,10 @@ TEST(ProcessorTest, EditorHandlesNotesWithAndWithoutSites)
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
    auto* voronoiseEditor = dynamic_cast<VoronoiseAudioProcessorEditor*>(editor.get());
    ASSERT_NE(voronoiseEditor, nullptr);
+   auto* canvas = &voronoiseEditor->getCanvas();
 
    // no sites yet
-   voronoiseEditor->spawnBall(60, 100);
+   canvas->spawnBall(60, 100);
 
    auto sites = processor.getValueTree().getChildWithName("Sites");
    for (int i = 0; i < 5; i++)
@@ -75,13 +76,13 @@ TEST(ProcessorTest, EditorHandlesNotesWithAndWithoutSites)
    {
       auto midi = makeNotes(40 + block % 40, 4, true);
       processor.processBlock(buffer, midi);
-      voronoiseEditor->spawnBall(40 + block % 40, 100);
+      canvas->spawnBall(40 + block % 40, 100);
    }
 
    // paint runs the delaunay/voronoi path with the sites above
-   juce::Image image(juce::Image::ARGB, 400, 300, true);
+   juce::Image image(juce::Image::ARGB, canvas->getWidth(), canvas->getHeight(), true);
    juce::Graphics g(image);
-   voronoiseEditor->paint(g);
+   canvas->paintEntireComponent(g, false);
 
    editor.reset();
 
