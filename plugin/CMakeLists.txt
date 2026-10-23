@@ -22,7 +22,8 @@ set(SOURCE_FILES source/PluginEditor.cpp
                  source/synth/WavetableSynth.cpp
                  source/geometry/Utils.cpp 
                  source/geometry/Delaunay.cpp 
-                 source/geometry/Voronoi.cpp)
+                 source/geometry/Voronoi.cpp
+                 source/primitives/Ball.cpp)
 
 set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h 
                  ${INCLUDE_DIR}/Voronoise/PluginProcessor.h 
@@ -31,7 +32,8 @@ set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h
                  ${INCLUDE_DIR}/DSP/Fifo.h
                  ${INCLUDE_DIR}/geometry/Utils.h
                  ${INCLUDE_DIR}/geometry/Delaunay.h
-                 ${INCLUDE_DIR}/geometry/Voronoi.h)
+                 ${INCLUDE_DIR}/geometry/Voronoi.h
+                 ${INCLUDE_DIR}/primitives/Ball.h)
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 
