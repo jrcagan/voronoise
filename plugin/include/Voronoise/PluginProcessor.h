@@ -69,11 +69,19 @@ public:
 
     using DSP_Order = std::array<DSP_Options, static_cast<size_t>(DSP_Options::END)>;
     SimpleMBComp::Fifo<DSP_Order> dspOrderFifo;
+
+    // note-ons get passed from the audio thread to the editor through this,
+    // the editor pulls them on a timer so the audio thread never touches the ui
+    struct NoteEvent {
+        int noteNumber = 0;
+        int velocity = 0;
+    };
+    SimpleMBComp::Fifo<NoteEvent, 128> noteEventFifo;
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoronoiseAudioProcessor)
 
-    DSP_Order dspOrder;
+    DSP_Order dspOrder {};
 
     template<typename DSP>
     struct DSP_Choice : juce::dsp::ProcessorBase {

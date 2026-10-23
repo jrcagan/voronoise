@@ -63,6 +63,11 @@ void WavetableSynth::render(juce::AudioBuffer<float>& buffer, int startSample, i
 }
 
 void WavetableSynth::handleMidiEvent(const juce::MidiMessage& midiEvent) {
+   // oscillators only exist after prepareToPlay
+   if (oscillators.empty()) {
+      return;
+   }
+
    if (midiEvent.isNoteOn()) {
       const auto oscillatorId = midiEvent.getNoteNumber();
       const auto frequency = midiNoteNumberToFrequency(oscillatorId);

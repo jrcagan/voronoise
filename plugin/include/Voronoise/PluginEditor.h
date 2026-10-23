@@ -8,7 +8,8 @@
 
 
 //==============================================================================
-class VoronoiseAudioProcessorEditor final : public juce::AudioProcessorEditor
+class VoronoiseAudioProcessorEditor final : public juce::AudioProcessorEditor,
+                                            private juce::Timer
 {
 public:
     explicit VoronoiseAudioProcessorEditor (VoronoiseAudioProcessor&);
@@ -19,11 +20,12 @@ public:
     void resized() override;
 
     void mouseDoubleClick (const juce::MouseEvent& event) override;
-    void handleNoteEvent(int noteNumber, int velocity);
     void spawnBall(int noteNumber, int velocity);
 
 
 private:
+    void timerCallback() override;
+
     VoronoiseAudioProcessor& processorRef;
     std::vector<GeoUtils::Point> points; 
     std::vector<Ball> balls;

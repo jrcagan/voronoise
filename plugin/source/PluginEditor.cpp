@@ -6,12 +6,13 @@
 VoronoiseAudioProcessorEditor::VoronoiseAudioProcessorEditor(VoronoiseAudioProcessor &p)
     : AudioProcessorEditor(&p), processorRef(p), valueTree(p.getValueTree())
 {
-    juce::ignoreUnused(processorRef);
     setSize(400, 300);
+    startTimerHz(60);
 }
 
 VoronoiseAudioProcessorEditor::~VoronoiseAudioProcessorEditor()
 {
+    stopTimer();
 }
 
 //==============================================================================
@@ -99,20 +100,27 @@ void VoronoiseAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent &eve
         nullptr);
 }
 
-// spawns a ball anytime a midi event happens
-void VoronoiseAudioProcessorEditor::handleNoteEvent(int noteNumber, int velocity)
+// spawns a ball for every note-on the audio thread has queued up since the last tick
+void VoronoiseAudioProcessorEditor::timerCallback()
 {
-    juce::MessageManager::callAsync([this, noteNumber, velocity]()
+    VoronoiseAudioProcessor::NoteEvent event;
+
+    while (processorRef.noteEventFifo.pull(event))
     {
-        spawnBall(noteNumber, velocity);
-    });
+        spawnBall(event.noteNumber, event.velocity);
+    }
 }
 
-void VoronoiseAudioProcessorEditor::spawnBall(int noteNumber, int velocity) 
+void VoronoiseAudioProcessorEditor::spawnBall(int noteNumber, int velocity)
 {
     Ball ball;
 
     auto sitesTree = valueTree.getChildWithName("Sites");
+
+    // no sites to spawn from yet (and % 0 would crash)
+    if (sitesTree.getNumChildren() == 0)
+        return;
+
     int idx = std::rand() % sitesTree.getNumChildren();
 
     auto point = sitesTree.getChild(idx);

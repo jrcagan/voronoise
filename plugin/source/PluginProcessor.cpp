@@ -92,7 +92,19 @@ void VoronoiseAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
     synth.prepareToPlay(sampleRate);
-    samplesPerBlock; // currently here just to get rid of warning, will do smth with this later prob
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
+    spec.numChannels = static_cast<juce::uint32>(getTotalNumOutputChannels());
+
+    // waveshaper's function is a null pointer by default, calling it would crash
+    waveshaper.dsp.functionToUse = [](float x) { return std::tanh(x); };
+
+    phaser.prepare(spec);
+    reverb.prepare(spec);
+    filter.prepare(spec);
+    waveshaper.prepare(spec);
 }
 
 void VoronoiseAudioProcessor::releaseResources()
@@ -145,19 +157,13 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     synth.processBlock(buffer,midiMessages);
 
-    // handles 
+    // handles note-ons for the editor, which picks them up on its timer
     for (const auto metadata : midiMessages)
     {
         const auto msg = metadata.getMessage();
         if (msg.isNoteOn())
         {
-            int noteNumber = msg.getNoteNumber();
-            int velocity = msg.getVelocity();
-
-            if (auto* editor = dynamic_cast<VoronoiseAudioProcessorEditor*>(getActiveEditor()))
-            {
-                editor->handleNoteEvent(noteNumber, velocity);
-            }
+            noteEventFifo.push({ msg.getNoteNumber(), msg.getVelocity() });
         }
     }
 
@@ -172,9 +178,10 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         dspOrder = newDSPOrder;
     }
     
-    DSP_Pointers dspPointers;   
+    // has to start as all nullptr, options without a case below stay empty
+    DSP_Pointers dspPointers {};
 
-    for (int i = 0; i < dspPointers.size(); i++) {
+    for (size_t i = 0; i < dspPointers.size(); i++) {
         switch(dspOrder[i]) {
             case DSP_Options::Phaser:
                 dspPointers[i] = &phaser;
@@ -188,13 +195,15 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             case DSP_Options::Waveshaper:
                 dspPointers[i] = &waveshaper;
                 break;
+            default:
+                break;
         }
     }
 
     auto block = juce::dsp::AudioBlock<float>(buffer);
     auto context = juce::dsp::ProcessContextReplacing<float>(block);
 
-    for (int i = 0; i < dspPointers.size(); i++) {
+    for (size_t i = 0; i < dspPointers.size(); i++) {
         if(dspPointers[i] != nullptr) {
             dspPointers[i]->process(context);
         }
