@@ -259,6 +259,7 @@ void VoronoiseAudioProcessorEditor::rebuildGeometry()
     triangles.clear();
     voronoiCells.clear();
     edges.clear();
+    cellCentres.clear();
 
     // edge indices are about to change, so balls can't be halfway through any of them
     for (auto &ball : balls)
@@ -276,6 +277,9 @@ void VoronoiseAudioProcessorEditor::rebuildGeometry()
         bbox.maxY = box.getBottom();
 
         voronoiCells = Voronoi::getCells(triangles, bbox);
+
+        for (const auto &kv : voronoiCells)
+            cellCentres.push_back(getCentroid(kv.second.vertices));
 
         // balls bounce off whichever lines are switched on, the set drops duplicates
         std::set<GeoUtils::Edge, GeoUtils::EdgeComparator> uniqueEdges;
@@ -331,6 +335,31 @@ void VoronoiseAudioProcessorEditor::syncWithProcessor()
         lines = newLines;
         rebuildGeometry();
     }
+}
+
+// middle of a polygon by area, falls back to the average of the corners if it's flat
+juce::Point<float> VoronoiseAudioProcessorEditor::getCentroid(const std::vector<GeoUtils::Point> &vertices)
+{
+    double area = 0.0, cx = 0.0, cy = 0.0;
+    for (size_t i = 0; i < vertices.size(); i++)
+    {
+        const auto &a = vertices[i];
+        const auto &b = vertices[(i + 1) % vertices.size()];
+        const double cross = a.x * b.y - b.x * a.y;
+        area += cross;
+        cx += (a.x + b.x) * cross;
+        cy += (a.y + b.y) * cross;
+    }
+
+    if (std::abs(area) < 1e-9)
+    {
+        GeoUtils::Point sum;
+        for (const auto &v : vertices)
+            sum += v;
+        return (sum / static_cast<double>(std::max<size_t>(1, vertices.size()))).toFloat();
+    }
+
+    return GeoUtils::Point(cx / (3.0 * area), cy / (3.0 * area)).toFloat();
 }
 
 // runs at 60hz: picks up notes from the audio thread and moves the balls
@@ -421,7 +450,7 @@ void VoronoiseAudioProcessorEditor::dropBall(juce::Point<float> position)
     addBall(ball);
 }
 
-// spawns a ball at a random site anytime a midi note comes in
+// midi notes have a chance of dropping a ball from the centre of a random voronoi cell
 void VoronoiseAudioProcessorEditor::spawnBall(int noteNumber, int velocity)
 {
     auto sitesTree = valueTree.getChildWithName("Sites");
@@ -430,15 +459,27 @@ void VoronoiseAudioProcessorEditor::spawnBall(int noteNumber, int velocity)
     if (sitesTree.getNumChildren() == 0)
         return;
 
+    if (random.nextFloat() >= processorRef.getParamValue(Params::MIDI_DROP_CHANCE))
+        return;
+
     const auto noteSettings = processorRef.getNoteSettings();
     const bool snap = processorRef.getParamValue(Params::SNAP_MIDI) > 0.5f;
     const int note = snap ? Scale::snap(noteNumber, noteSettings) : Scale::applyOctaveShift(noteNumber, noteSettings);
 
     Ball ball;
 
-    auto point = sitesTree.getChild(random.nextInt(sitesTree.getNumChildren()));
-    ball.setX(static_cast<float>(point.getProperty("x")));
-    ball.setY(static_cast<float>(point.getProperty("y")));
+    if (! cellCentres.empty())
+    {
+        const auto centre = cellCentres[static_cast<size_t>(random.nextInt(static_cast<int>(cellCentres.size())))];
+        ball.setXY(centre.x, centre.y);
+    }
+    else
+    {
+        // under 3 sites there's no voronoi yet, so use a site
+        auto point = sitesTree.getChild(random.nextInt(sitesTree.getNumChildren()));
+        ball.setX(static_cast<float>(point.getProperty("x")));
+        ball.setY(static_cast<float>(point.getProperty("y")));
+    }
 
     // louder notes make bigger balls
     setupBall(ball, note, 0.5f + static_cast<float>(velocity) / 127.f);

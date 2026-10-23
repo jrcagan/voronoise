@@ -19,6 +19,7 @@ namespace Params
    inline constexpr auto MAX_BALLS = "maxBalls";
    inline constexpr auto PASS_THROUGH = "passThrough";
    inline constexpr auto PASS_THROUGH_PLAYS = "passThroughPlays";
+   inline constexpr auto MIDI_DROP_CHANCE = "midiDropChance";
 
    // notes
    inline constexpr auto SCALE_LOCK = "scaleLock";

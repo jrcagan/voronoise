@@ -478,6 +478,7 @@ TEST(EditorSettingsTest, NoteSettingsApplyToBalls)
       EXPECT_EQ(ball.noteNumber % 12, 4);
 
    // midi balls snap when asked
+   setParam(f.processor, Params::MIDI_DROP_CHANCE, 1.f);
    setParam(f.processor, Params::SNAP_MIDI, 1.f);
    f.e->spawnBall(61, 100);
    EXPECT_EQ(f.e->getBalls().back().noteNumber % 12, 4);
@@ -549,4 +550,48 @@ TEST(StateTest, SettingsSitesAndSampleSurviveSaveAndLoad)
    EXPECT_NEAR(restored.getParamValue(Params::GRAVITY), 1234.f, 1.f);
 
    file.deleteFile();
+}
+
+TEST(EditorSettingsTest, MidiBallsDropFromCellCentresByChance)
+{
+   EditorFixture f;
+   f.addSites();
+   f.tick();
+
+   const auto &centres = f.e->getCellCentres();
+   ASSERT_EQ(centres.size(), 5u); // one per site
+
+   // every centre is inside the window
+   for (const auto &c : centres)
+      EXPECT_TRUE(f.e->getLocalBounds().toFloat().contains(c));
+
+   // chance 0 = never, 1 = always
+   setParam(f.processor, Params::MIDI_DROP_CHANCE, 0.f);
+   for (int i = 0; i < 50; i++)
+      f.e->spawnBall(60, 100);
+   EXPECT_TRUE(f.e->getBalls().empty());
+
+   setParam(f.processor, Params::MIDI_DROP_CHANCE, 1.f);
+   setParam(f.processor, Params::MAX_BALLS, 500.f);
+   for (int i = 0; i < 50; i++)
+      f.e->spawnBall(60, 100);
+   ASSERT_EQ(f.e->getBalls().size(), 50u);
+
+   // each one starts on a cell centre
+   for (const auto &ball : f.e->getBalls())
+   {
+      bool onCentre = false;
+      for (const auto &c : centres)
+         onCentre = onCentre || c.getDistanceFrom({ ball.getX(), ball.getY() }) < 0.01f;
+      EXPECT_TRUE(onCentre);
+   }
+
+   // somewhere in between drops roughly that often
+   setParam(f.processor, Params::MAX_BALLS, 500.f);
+   setParam(f.processor, Params::MIDI_DROP_CHANCE, 0.3f);
+   const auto before = f.e->getBalls().size();
+   for (int i = 0; i < 400; i++)
+      f.e->spawnBall(60, 100);
+   const auto dropped = static_cast<float>(f.e->getBalls().size() - before);
+   EXPECT_NEAR(dropped / 400.f, 0.3f, 0.08f);
 }

@@ -53,6 +53,7 @@ public:
 
     const std::vector<Ball>& getBalls() const { return balls; }
     const std::vector<GeoUtils::Edge>& getEdges() const { return edges; }
+    const std::vector<juce::Point<float>>& getCellCentres() const { return cellCentres; }
 
 private:
     void timerCallback() override;
@@ -66,6 +67,7 @@ private:
     void setupBall(Ball& ball, int noteNumber, float sizeScale);
 
     Params::Lines getLinesSetting() const;
+    static juce::Point<float> getCentroid(const std::vector<GeoUtils::Point>& vertices);
     Ball::Physics getPhysics();
 
     VoronoiseAudioProcessor& processorRef;
@@ -73,6 +75,7 @@ private:
     std::vector<GeoUtils::Triangle> triangles;
     std::map<GeoUtils::Point, Voronoi::Cell, GeoUtils::PointComparator> voronoiCells;
     std::vector<GeoUtils::Edge> edges; // voronoi + delaunay edges the balls bounce off and play on
+    std::vector<juce::Point<float>> cellCentres; // where midi balls drop from
     std::vector<Ball> balls;
     juce::ValueTree valueTree;
 

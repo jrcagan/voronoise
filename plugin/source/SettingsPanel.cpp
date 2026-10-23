@@ -324,6 +324,8 @@ namespace Settings
       balls->addHeading("Behaviour");
       balls->addParams(apvts, { Params::LIFETIME, Params::LAUNCH_SPEED, Params::MAX_BALLS,
                                 Params::PASS_THROUGH, Params::PASS_THROUGH_PLAYS });
+      balls->addHeading("MIDI");
+      balls->addParams(apvts, { Params::MIDI_DROP_CHANCE });
 
       auto notes = std::make_unique<Page>();
       notes->addHeading("Scale");

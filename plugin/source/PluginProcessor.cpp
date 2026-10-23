@@ -179,6 +179,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
     addInt(Params::MAX_BALLS, "Max balls", 1, 500, 200);
     addFloat(Params::PASS_THROUGH, "Pass through chance", { 0.f, 1.f, 0.01f }, 0.f);
     addBool(Params::PASS_THROUGH_PLAYS, "Pass throughs play", true);
+    addFloat(Params::MIDI_DROP_CHANCE, "MIDI drop chance", { 0.f, 1.f, 0.01f }, 0.5f);
 
     // notes
     addBool(Params::SCALE_LOCK, "Lock to scale", true);
