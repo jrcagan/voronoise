@@ -501,7 +501,7 @@ namespace
       useShortEnvelope(f.processor);
       setParam(f.processor, Params::MIN_BOUNCE, minBounce);
       setParam(f.processor, Params::LIFETIME, 8.f);
-      setParam(f.processor, Params::LAUNCH_SPEED, 100.f);
+      setParam(f.processor, Params::LAUNCH_SPEED, 0.f); // straight down, a random sideways launch made the gaps vary run to run
       if (withLines)
          for (auto [x, y] : { std::pair{ 90.0, 110.0 }, { 330.0, 80.0 }, { 220.0, 240.0 }, { 80.0, 300.0 }, { 420.0, 290.0 }, { 560.0, 160.0 }, { 690.0, 290.0 } })
             f.processor.getValueTree().getChildWithName("Sites").appendChild(
