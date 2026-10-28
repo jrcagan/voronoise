@@ -225,8 +225,6 @@ TEST(ModulationTest, SmoothingSlowsJumps)
 TEST(ModulationTest, LfoChangesBallPhysics)
 {
    Fixture f;
-   auto editor = std::unique_ptr<juce::AudioProcessorEditor>(f.processor.createEditor());
-   auto &canvas = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
 
    // lfo at the top with full negative depth turns gravity off
    makeFlat(f.processor, 2, 1.f);
@@ -234,10 +232,9 @@ TEST(ModulationTest, LfoChangesBallPhysics)
    setParam(f.processor, Params::LAUNCH_SPEED, 0.f);
    run(f.processor, 0.05);
 
-   canvas.dropBall({ 100.f, 50.f });
-   for (int i = 0; i < 30; i++)
-      canvas.updateBalls(1.f / 60.f);
-   EXPECT_FLOAT_EQ(canvas.getBalls().front().getY(), 50.f);
+   f.processor.getWorld().dropBall({ 100.f, 50.f });
+   run(f.processor, 0.5);
+   EXPECT_FLOAT_EQ(f.processor.getWorld().getBalls().front().getY(), 50.f);
 }
 
 TEST(ModulationTest, SavedWithTheProject)
@@ -245,7 +242,7 @@ TEST(ModulationTest, SavedWithTheProject)
    juce::MemoryBlock saved;
    {
       Fixture f;
-      f.processor.addModulation(1, Params::PULSE_WIDTH, -0.3f);
+      f.processor.addModulation(1, Params::WT_POSITION, -0.3f);
       LfoShape shape;
       shape.setPreset(LfoShape::Preset::Square);
       f.processor.setLfoShape(2, shape);
@@ -257,7 +254,7 @@ TEST(ModulationTest, SavedWithTheProject)
    const auto mods = f.processor.getModulations();
    ASSERT_EQ(mods.size(), 1u);
    EXPECT_EQ(mods[0].lfo, 1);
-   EXPECT_EQ(mods[0].paramID, Params::PULSE_WIDTH);
+   EXPECT_EQ(mods[0].paramID, Params::WT_POSITION);
    EXPECT_NEAR(mods[0].depth, -0.3f, 1e-4f);
 
    LfoShape square;
@@ -325,16 +322,21 @@ TEST(KeyboardTest, ClickedKeysPlayAndDropBalls)
    auto &keyboard = ed.getMainPanel().getKeyboard();
    EXPECT_GT(keyboard.getWidth(), 600);
 
+   // with a site to drop from and the drop chance at 100%, a key press drops a ball
+   setParam(f.processor, Params::MIDI_DROP_CHANCE, 1.f);
+   f.processor.getValueTree().getChildWithName("Sites").appendChild(
+       juce::ValueTree("Site").setProperty("x", 300.0, nullptr).setProperty("y", 100.0, nullptr), nullptr);
+   run(f.processor, 0.01);
+
    f.processor.getKeyboardState().noteOn(1, 60, 0.8f);
    juce::AudioBuffer<float> buffer(2, BLOCK);
    juce::MidiBuffer midi;
    f.processor.processBlock(buffer, midi);
 
-   // the note reached the synth (sound) and was queued for the canvas (ball)
+   // the note reached the synth (sound) and dropped a ball
    EXPECT_GT(buffer.getMagnitude(0, BLOCK), 0.01f);
-   VoronoiseAudioProcessor::NoteEvent event;
-   ASSERT_TRUE(f.processor.noteEventFifo.pull(event));
-   EXPECT_EQ(event.noteNumber, 60);
+   ASSERT_EQ(f.processor.getWorld().getBalls().size(), 1u);
+   EXPECT_EQ(f.processor.getWorld().getBalls().front().noteNumber, 60);
 
    // letting go fades out over the release (300ms by default) instead of cutting off.
    // hosts give a fresh midi buffer every block, so do the same here
@@ -353,24 +355,24 @@ TEST(KeyboardTest, ClickedKeysPlayAndDropBalls)
 TEST(SwitchTest, ClickedChoiceLightsStraightAway)
 {
    Fixture f;
-   UI::ParamControl waves(f.processor, Params::BALL_SOUND, "Ball sound", UI::ParamControl::Style::Switch);
-   auto &buttons = waves.getSwitchButtons();
-   ASSERT_EQ(buttons.size(), 5);
+   UI::ParamControl lines(f.processor, Params::LINES, "Lines", UI::ParamControl::Style::Switch);
+   auto &buttons = lines.getSwitchButtons();
+   ASSERT_EQ(buttons.size(), 3);
 
    // each click lights that button (and only that one) right away
-   for (int clicked : { 2, 0, 4, 1 })
+   for (int clicked : { 2, 0, 1, 2 })
    {
       buttons[clicked]->onClick();
       for (int i = 0; i < buttons.size(); i++)
          EXPECT_EQ(buttons[i]->getToggleState(), i == clicked) << "clicked " << clicked << ", button " << i;
-      EXPECT_EQ(static_cast<int>(f.processor.getBaseValue(Params::BALL_SOUND)), clicked);
+      EXPECT_EQ(static_cast<int>(f.processor.getBaseValue(Params::LINES)), clicked);
    }
 
-   // and it follows changes made elsewhere (automation, the canvas)
-   auto *param = f.processor.apvts.getParameter(Params::BALL_SOUND);
-   param->setValueNotifyingHost(param->convertTo0to1(3.f));
-   EXPECT_TRUE(buttons[3]->getToggleState());
-   EXPECT_FALSE(buttons[1]->getToggleState());
+   // and it follows changes made elsewhere (automation)
+   auto *param = f.processor.apvts.getParameter(Params::LINES);
+   param->setValueNotifyingHost(param->convertTo0to1(1.f));
+   EXPECT_TRUE(buttons[1]->getToggleState());
+   EXPECT_FALSE(buttons[2]->getToggleState());
 }
 
 //==============================================================================
@@ -437,7 +439,7 @@ TEST(EnvelopeTest, NoClicksAtTheStartOrEnd)
    for (size_t i = 1; i < out.size(); i++)
       biggestStep = juce::jmax(biggestStep, std::abs(out[i] - out[i - 1]));
    EXPECT_LT(biggestStep, 0.07f);
-   EXPECT_EQ(out.front(), 0.f);
+   EXPECT_NEAR(out.front(), 0.f, 1e-6f); // the band limited tables carry a tiny bit of fft rounding
    EXPECT_LT(std::abs(out.back()), 1e-4f);
 }
 
@@ -532,4 +534,51 @@ TEST(EnvelopeTest, GraphDoesNotRescaleWhenReleaseGrows)
    setParam(f.processor, Params::AMP_RELEASE, 10000.f);
    display.refresh();
    EXPECT_LE(display.getHandlePosition(Handle::End).x, 172.f + 0.01f);
+}
+
+TEST(EnvelopeTest, BallHitsUseTheSameEnvelope)
+{
+   Fixture f;
+   setParam(f.processor, Params::AMP_ATTACK, 100.f);
+   setParam(f.processor, Params::AMP_DECAY, 50.f);
+   setParam(f.processor, Params::AMP_SUSTAIN, 0.5f);
+   setParam(f.processor, Params::AMP_RELEASE, 200.f);
+   setParam(f.processor, Params::HIT_LENGTH, 300.f);
+
+   // one full strength sine hit, like a ball slamming into a line
+   f.processor.hitFifo.push({ 69, 1.f, Waveform::Synth });
+   std::vector<float> out;
+   juce::AudioBuffer<float> buffer(2, BLOCK);
+   for (int i = 0; i < 80; i++)
+   {
+      juce::MidiBuffer midi;
+      f.processor.processBlock(buffer, midi);
+      out.insert(out.end(), buffer.getReadPointer(0), buffer.getReadPointer(0) + BLOCK);
+   }
+
+   const float peak = peakBetween(out, 0.09, 0.12);
+   EXPECT_GT(peak, 0.1f);
+   EXPECT_LT(peakBetween(out, 0.0, 0.02), peak * 0.3f);                 // slow attack
+   EXPECT_NEAR(peakBetween(out, 0.2, 0.28) / peak, 0.5f, 0.05f);         // held at sustain until the hit length
+   // the hit length counts from the top of the attack: held until 100 + 300ms, then 200ms of release
+   EXPECT_NEAR(peakBetween(out, 0.32, 0.38) / peak, 0.5f, 0.05f);        // still held at sustain
+   EXPECT_GT(peakBetween(out, 0.45, 0.5), 0.1f * peak);                  // releasing
+   EXPECT_LT(peakBetween(out, 0.65, 0.8), 0.001f);                       // gone once the release is done
+
+   // samples keep their own fades and play out whole, the amp envelope doesn't touch them
+   HitSynth synth;
+   synth.prepareToPlay(SAMPLE_RATE);
+   SampleData::Ptr tone = new SampleData();
+   tone->sampleRate = SAMPLE_RATE;
+   tone->buffer.setSize(1, 24000);
+   for (int i = 0; i < 24000; i++)
+      tone->buffer.setSample(0, i, 0.5f);
+   synth.setSample(tone);
+   auto settings = f.processor.getSoundSettings();
+   synth.setSettings(settings);
+   synth.trigger({ settings.rootNote, 1.f, Waveform::Sample });
+   juce::AudioBuffer<float> sampleOut(1, 24000);
+   sampleOut.clear();
+   synth.render(sampleOut, 0, 24000);
+   EXPECT_NEAR(sampleOut.getSample(0, 20000) / HitSynth::VOICE_GAIN, 0.5f, 0.01f); // past hit length + release, still full
 }

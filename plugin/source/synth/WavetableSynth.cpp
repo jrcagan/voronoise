@@ -1,29 +1,16 @@
 #include "synth/WavetableSynth.h"
 
-std::vector<float> WavetableSynth::generateSineWavetable(int length) {
-   std::vector<float> sineWaveTable(length);
+WavetableSynth::WavetableSynth()
+    : wavetable(Wavetable::createPreset(Wavetable::Preset::BasicShapes)) {}
 
-   const auto PI = std::atanf(1.f) * 4;
+void WavetableSynth::prepareToPlay(double newSampleRate) {
+   sampleRate = newSampleRate;
 
-   for(int i = 0; i < length; i++) {
-      sineWaveTable[i] = std::sinf(2 * PI * static_cast<float>(i) / static_cast<float>(length));
-   }
-
-   return sineWaveTable;
-}
-
-void WavetableSynth::initializeOscillators() {
-   constexpr auto OSCILLATORS_COUNT = 128;
-
-   const auto waveTable = generateSineWavetable(64);
-
-   oscillators.clear();
-   envelopes.assign(OSCILLATORS_COUNT, juce::ADSR());
-   velocities.assign(OSCILLATORS_COUNT, 0.f);
-   for(int i = 0; i < OSCILLATORS_COUNT; i++) {
-      oscillators.emplace_back(waveTable, sampleRate);
-      envelopes[static_cast<size_t>(i)].setSampleRate(sampleRate);
-      envelopes[static_cast<size_t>(i)].setParameters(envelopeParameters);
+   constexpr auto NOTE_COUNT = 128;
+   notes.assign(NOTE_COUNT, Note());
+   for (auto& note : notes) {
+      note.envelope.setSampleRate(sampleRate);
+      note.envelope.setParameters(envelopeParameters);
    }
 }
 
@@ -36,8 +23,8 @@ void WavetableSynth::setEnvelope(const juce::ADSR::Parameters& parameters) {
    }
 
    envelopeParameters = parameters;
-   for (auto& envelope : envelopes) {
-      envelope.setParameters(envelopeParameters);
+   for (auto& note : notes) {
+      note.envelope.setParameters(envelopeParameters);
    }
 }
 
@@ -45,20 +32,24 @@ void WavetableSynth::setLevel(float gain) {
    level = gain;
 }
 
+void WavetableSynth::setWavetable(Wavetable::Ptr newWavetable) {
+   if (newWavetable != nullptr) {
+      wavetable = newWavetable;
+   }
+}
+
+void WavetableSynth::setPosition(float newPosition) {
+   position = juce::jlimit(0.f, 1.f, newPosition);
+}
+
 int WavetableSynth::getNumActiveNotes() const {
    int count = 0;
-   for (const auto& envelope : envelopes) {
-      if (envelope.isActive()) {
+   for (const auto& note : notes) {
+      if (note.envelope.isActive()) {
          count++;
       }
    }
    return count;
-}
-
-void WavetableSynth::prepareToPlay(double newSampleRate) {
-   sampleRate = newSampleRate;
-
-   initializeOscillators();
 }
 
 void WavetableSynth::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
@@ -78,63 +69,56 @@ void WavetableSynth::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 }
 
 void WavetableSynth::render(juce::AudioBuffer<float>& buffer, int startSample, int endSample) {
+   if (buffer.getNumChannels() == 0) {
+      return;
+   }
+
    auto* firstChannel = buffer.getWritePointer(0);
 
-   for (size_t i = 0; i < oscillators.size(); i++) {
-      auto& oscillator = oscillators[i];
-      auto& envelope = envelopes[i];
-      if (! oscillator.isPlaying()) {
+   for (auto& note : notes) {
+      if (! note.envelope.isActive()) {
          continue;
       }
 
-      const float gain = velocities[i] * level;
+      const float gain = note.velocity * level;
       for (int s = startSample; s < endSample; s++) {
-         firstChannel[s] += oscillator.getSample() * envelope.getNextSample() * gain;
-      }
-
-      // release finished, the note's done
-      if (! envelope.isActive()) {
-         oscillator.stop();
+         firstChannel[s] += wavetable->getSample(note.phase, note.increment, position) * note.envelope.getNextSample() * gain;
+         note.phase += note.increment;
+         if (note.phase >= 1.0) {
+            note.phase -= 1.0;
+         }
       }
    }
 
    for (int c = 1; c < buffer.getNumChannels(); c++) {
-      std::copy(firstChannel + startSample, firstChannel + endSample, 
+      std::copy(firstChannel + startSample, firstChannel + endSample,
          buffer.getWritePointer(c) + startSample);
    }
 }
 
 void WavetableSynth::handleMidiEvent(const juce::MidiMessage& midiEvent) {
-   // oscillators only exist after prepareToPlay
-   if (oscillators.empty()) {
+   // notes only exist after prepareToPlay
+   if (notes.empty()) {
       return;
    }
 
    if (midiEvent.isNoteOn()) {
-      const auto oscillatorId = midiEvent.getNoteNumber();
-      const auto frequency = midiNoteNumberToFrequency(oscillatorId);
-      oscillators[oscillatorId].setFrequency(frequency);
-      velocities[static_cast<size_t>(oscillatorId)] = midiEvent.getFloatVelocity();
-      envelopes[static_cast<size_t>(oscillatorId)].noteOn();
+      auto& note = notes[static_cast<size_t>(midiEvent.getNoteNumber())];
+      // restart from zero if it wasn't already sounding, so every note starts on the same part of the wave
+      if (! note.envelope.isActive()) {
+         note.phase = 0.0;
+      }
+      note.increment = juce::MidiMessage::getMidiNoteInHertz(midiEvent.getNoteNumber()) / sampleRate;
+      note.velocity = midiEvent.getFloatVelocity();
+      note.envelope.noteOn();
 
    } else if (midiEvent.isNoteOff()) {
-      // keeps playing through the release, render stops it once that's done
-      const auto oscillatorId = midiEvent.getNoteNumber();
-      envelopes[static_cast<size_t>(oscillatorId)].noteOff();
+      // keeps playing through the release
+      notes[static_cast<size_t>(midiEvent.getNoteNumber())].envelope.noteOff();
 
    } else if (midiEvent.isAllNotesOff()) {
-      for (size_t i = 0; i < oscillators.size(); i++) {
-         oscillators[i].stop();
-         envelopes[i].reset();
+      for (auto& note : notes) {
+         note.envelope.reset();
       }
    }
-
-}
-
-float WavetableSynth::midiNoteNumberToFrequency(int midiNoteNumber) {
-   constexpr auto A4_FREQEUNCY = 440.f;
-   constexpr auto A4_NOTE_NUMBER = 69.f;
-   constexpr auto SEMITONES_IN_AN_OCTAVE = 12.f;
-
-   return A4_FREQEUNCY * std::powf(2.f, (midiNoteNumber - A4_NOTE_NUMBER) / SEMITONES_IN_AN_OCTAVE);
 }

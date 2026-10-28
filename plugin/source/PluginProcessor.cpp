@@ -18,6 +18,9 @@ VoronoiseAudioProcessor::VoronoiseAudioProcessor()
 
     formatManager.registerBasicFormats();
 
+    for (int pc = 0; pc < 12; pc++)
+        noteWeightIDs[static_cast<size_t>(pc)] = Params::noteWeight(pc);
+
     // per parameter modulation slots, indexed the same as getParameters()
     const auto& params = getParameters();
     numParams = params.size();
@@ -37,10 +40,19 @@ VoronoiseAudioProcessor::VoronoiseAudioProcessor()
 
     loadLfoShapesFromState();
     rebuildRoutes();
+
+    setWavetable(Wavetable::createPreset(Wavetable::Preset::BasicShapes));
+
+    // sites changing rebuilds the lines right away, the timer catches lfos on the lines setting
+    apvts.state.addListener(this);
+    world.rebuildGeometry();
+    startTimerHz(30);
 }
 
 VoronoiseAudioProcessor::~VoronoiseAudioProcessor()
 {
+    stopTimer();
+    apvts.state.removeListener(this);
 }
 
 //==============================================================================
@@ -114,6 +126,7 @@ void VoronoiseAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
     currentSampleRate = sampleRate;
+    world.prepare(sampleRate);
     synth.prepareToPlay(sampleRate);
     hitSynth.prepareToPlay(sampleRate);
 
@@ -189,6 +202,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
     // view
     addChoice(Params::LINES, "Lines", Params::getLinesNames(), 0);
     addChoice(Params::BALL_SOUND, "Ball sound", getWaveformNames(), 0);
+    addFloat(Params::WT_POSITION, "WT position", { 0.f, 1.f, 0.001f }, 0.f);
+
+    // hit random
+    addFloat(Params::RND_POSITION, "Random WT pos", { 0.f, 1.f, 0.01f }, 0.f);
+    addInt(Params::RND_PITCH, "Random pitch", 0, 24, 0, [](int v, int) { return v == 0 ? juce::String("off") : "+/-" + juce::String(v) + " st"; });
+    addFloat(Params::RND_LEVEL, "Random level", { 0.f, 1.f, 0.01f }, 0.f);
+    addFloat(Params::RND_PAN, "Random pan", { 0.f, 1.f, 0.01f }, 0.f);
+    addFloat(Params::HIT_DYNAMICS, "Hit dynamics", { 0.f, 1.f, 0.01f }, 0.25f);
 
     // lfos
     for (int lfo = 0; lfo < Params::NUM_LFOS; lfo++)
@@ -211,6 +232,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
     // balls
     addFloat(Params::GRAVITY, "Gravity", { 0.f, 3000.f, 1.f }, Ball::GRAVITY, "px/s2");
     addFloat(Params::BOUNCINESS, "Bounciness", { 0.f, 1.f, 0.01f }, Ball::RESTITUTION);
+    addFloat(Params::MIN_BOUNCE, "Min bounce", { 0.f, 800.f, 1.f, 0.6f }, 250.f, "px/s");
     addFloat(Params::DRAG, "Air drag", { 0.f, 3.f, 0.01f }, 0.f);
     addFloat(Params::BALL_SIZE, "Size", { 2.f, 30.f, 0.5f }, 6.f, "px");
     addFloat(Params::SIZE_VARIATION, "Size variation", { 0.f, 1.f, 0.01f }, 0.f);
@@ -238,14 +260,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
     }
 
     // amp envelope, skewed so the short times get most of the knob
-    addFloat(Params::AMP_ATTACK, "Attack", { 0.f, 5000.f, 0.1f, 0.3f }, 5.f, "ms");
+    addFloat(Params::AMP_ATTACK, "Attack", { 0.f, 20000.f, 0.1f, 0.3f }, 5.f, "ms");
     addFloat(Params::AMP_DECAY, "Decay", { 1.f, 5000.f, 0.1f, 0.3f }, 200.f, "ms");
     addFloat(Params::AMP_SUSTAIN, "Sustain", { 0.f, 1.f, 0.01f }, 0.8f);
     addFloat(Params::AMP_RELEASE, "Release", { 1.f, 10000.f, 0.1f, 0.3f }, 300.f, "ms");
     addFloat(Params::KEYS_LEVEL, "Keys level", { -60.f, 6.f, 0.1f, 2.f }, -6.f, "dB");
+    addFloat(Params::HIT_LENGTH, "Hit length", { 1.f, 5000.f, 0.1f, 0.3f }, 200.f, "ms");
 
     // sound
-    addFloat(Params::PULSE_WIDTH, "Pulse width", { 0.05f, 0.95f, 0.01f }, 0.5f);
     addFloat(Params::SAMPLE_START, "Start", { 0.f, 1.f, 0.001f }, 0.f);
     addFloat(Params::SAMPLE_END, "End", { 0.f, 1.f, 0.001f }, 1.f);
     addChoice(Params::SLICE_MODE, "Slice by", SampleSlicer::getModeNames(), 0);
@@ -509,7 +531,7 @@ Scale::Settings VoronoiseAudioProcessor::getNoteSettings() const
     s.highestNote = static_cast<int>(getParamValue(Params::HIGHEST_NOTE));
     s.octaveShift = static_cast<int>(getParamValue(Params::OCTAVE_SHIFT));
     for (int pc = 0; pc < 12; pc++)
-        s.weights[static_cast<size_t>(pc)] = getParamValue(Params::noteWeight(pc));
+        s.weights[static_cast<size_t>(pc)] = getParamValue(noteWeightIDs[static_cast<size_t>(pc)]);
     return s;
 }
 
@@ -528,7 +550,12 @@ SampleSlicer::Settings VoronoiseAudioProcessor::getSliceSettings() const
 HitSynth::Settings VoronoiseAudioProcessor::getSoundSettings() const
 {
     HitSynth::Settings s;
-    s.pulseWidth = getParamValue(Params::PULSE_WIDTH);
+    s.position = getParamValue(Params::WT_POSITION);
+    s.synthLevel = juce::Decibels::decibelsToGain(getParamValue(Params::KEYS_LEVEL), -59.9f);
+    s.randomPosition = getParamValue(Params::RND_POSITION);
+    s.randomPitch = static_cast<int>(getParamValue(Params::RND_PITCH));
+    s.randomLevel = getParamValue(Params::RND_LEVEL);
+    s.randomPan = getParamValue(Params::RND_PAN);
     s.slicing = getSliceSettings();
     s.reverse = getParamValue(Params::REVERSE) > 0.5f;
     s.transpose = static_cast<int>(getParamValue(Params::TRANSPOSE));
@@ -538,6 +565,9 @@ HitSynth::Settings VoronoiseAudioProcessor::getSoundSettings() const
     s.sampleGain = juce::Decibels::decibelsToGain(getParamValue(Params::SAMPLE_GAIN));
     s.fadeInMs = getParamValue(Params::FADE_IN);
     s.fadeOutMs = getParamValue(Params::FADE_OUT);
+    s.envelope = { getParamValue(Params::AMP_ATTACK) * 0.001f, getParamValue(Params::AMP_DECAY) * 0.001f,
+                   getParamValue(Params::AMP_SUSTAIN), getParamValue(Params::AMP_RELEASE) * 0.001f };
+    s.hitLengthMs = getParamValue(Params::HIT_LENGTH);
     return s;
 }
 
@@ -561,18 +591,35 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     synth.setEnvelope({ getParamValue(Params::AMP_ATTACK) * 0.001f, getParamValue(Params::AMP_DECAY) * 0.001f,
                         getParamValue(Params::AMP_SUSTAIN), getParamValue(Params::AMP_RELEASE) * 0.001f });
     synth.setLevel(juce::Decibels::decibelsToGain(getParamValue(Params::KEYS_LEVEL), -59.9f));
+    synth.setPosition(getParamValue(Params::WT_POSITION));
+
+    Wavetable::Ptr newWavetable;
+    while (wavetableFifo.pull(newWavetable)) {
+        synth.setWavetable(newWavetable);
+        hitSynth.setWavetable(newWavetable);
+    }
 
     synth.processBlock(buffer,midiMessages);
 
-    // handles note-ons for the editor, which picks them up on its timer
+    // note-ons can drop balls, and retrigger the lfos
+    world.beginBlock();
     bool noteStarted = false;
     for (const auto metadata : midiMessages)
     {
         const auto msg = metadata.getMessage();
         if (msg.isNoteOn())
         {
-            noteEventFifo.push({ msg.getNoteNumber(), msg.getVelocity() });
+            world.handleNoteOn(msg.getNoteNumber(), msg.getVelocity(), metadata.samplePosition);
             noteStarted = true;
+        }
+        else if (msg.isNoteOff())
+        {
+            world.handleNoteOff(msg.getNoteNumber(), metadata.samplePosition);
+        }
+        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+        {
+            for (int note = 0; note < 128; note++)
+                world.handleNoteOff(note, metadata.samplePosition);
         }
     }
 
@@ -588,12 +635,7 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         hitSynth.setSample(newSample);
     }
 
-    HitSynth::Hit hit;
-    while (hitFifo.pull(hit)) {
-        hitSynth.trigger(hit);
-    }
-
-    hitSynth.render(buffer, 0, buffer.getNumSamples());
+    renderHits(buffer);
 
     // for future dsp implementations
     auto newDSPOrder = DSP_Order();
@@ -638,6 +680,47 @@ void VoronoiseAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 }
 
+void VoronoiseAudioProcessor::renderHits(juce::AudioBuffer<float>& buffer)
+{
+    HitSynth::Hit hit;
+    while (hitFifo.pull(hit))
+        hitSynth.trigger(hit);
+
+    // step the balls through this block, then play their hits on the samples they happened
+    const int numSamples = buffer.getNumSamples();
+    const int numHits = world.process(numSamples, blockHits);
+
+    int rendered = 0;
+    for (int i = 0; i < numHits; i++)
+    {
+        const auto& event = blockHits[static_cast<size_t>(i)];
+        if (event.sampleOffset > rendered)
+        {
+            hitSynth.render(buffer, rendered, event.sampleOffset - rendered);
+            rendered = event.sampleOffset;
+        }
+        hitSynth.trigger(event.hit);
+    }
+    hitSynth.render(buffer, rendered, numSamples - rendered);
+}
+
+void VoronoiseAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree&)
+{
+    if (parent.hasType("Sites"))
+        world.rebuildGeometry();
+}
+
+void VoronoiseAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree&, int)
+{
+    if (parent.hasType("Sites"))
+        world.rebuildGeometry();
+}
+
+void VoronoiseAudioProcessor::timerCallback()
+{
+    world.syncGeometry();
+}
+
 bool VoronoiseAudioProcessor::loadSample(const juce::File& file)
 {
     std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor(file));
@@ -678,6 +761,42 @@ juce::String VoronoiseAudioProcessor::getSampleName() const
     return loadedSamples.getLast()->name;
 }
 
+void VoronoiseAudioProcessor::setWavetable(Wavetable::Ptr newWavetable)
+{
+    if (newWavetable == nullptr)
+        return;
+
+    // free old tables the audio thread let go of (only this array still has them)
+    for (int i = loadedWavetables.size(); --i >= 0;)
+    {
+        if (loadedWavetables.getObjectPointerUnchecked(i)->getReferenceCount() == 1)
+            loadedWavetables.remove(i);
+    }
+
+    wavetable = newWavetable;
+    loadedWavetables.add(newWavetable);
+    wavetableFifo.push(newWavetable);
+}
+
+bool VoronoiseAudioProcessor::loadWavetable(const juce::File& file)
+{
+    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor(file));
+    if (reader == nullptr || reader->lengthInSamples <= 1)
+        return false;
+
+    // more than 64 frames' worth is never used, so don't read a huge file all the way
+    const auto length = static_cast<int>(juce::jmin(reader->lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 60.0)));
+    juce::AudioBuffer<float> audio(static_cast<int>(juce::jmin(reader->numChannels, 2u)), length);
+    reader->read(&audio, 0, length, 0, true, true);
+
+    auto table = Wavetable::fromAudio(audio, file.getFileNameWithoutExtension());
+    if (table == nullptr)
+        return false;
+
+    setWavetable(table);
+    return true;
+}
+
 SampleData::Ptr VoronoiseAudioProcessor::getCurrentSample() const
 {
     return loadedSamples.isEmpty() ? nullptr : loadedSamples.getLast();
@@ -704,6 +823,12 @@ void VoronoiseAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     // settings, sites and the sample path all live in the apvts state
     auto state = apvts.copyState();
+
+    // the wavetable's frames go in as one blob, on the copy so saving never touches the live state
+    // (hosts can save from any thread)
+    const Wavetable::Ptr table = wavetable;
+    state.setProperty("wavetable", table->toMemoryBlock().toBase64Encoding(), nullptr);
+    state.setProperty("wavetableName", table->getName(), nullptr);
     if (auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -714,14 +839,22 @@ void VoronoiseAudioProcessor::setStateInformation (const void* data, int sizeInB
     if (xml == nullptr || ! xml->hasTagName(apvts.state.getType()))
         return;
 
-    // the editor notices the state object changed and picks up the new sites
+    // swapping the state means listening to the new one
+    apvts.state.removeListener(this);
     apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    apvts.state.addListener(this);
 
     if (! apvts.state.getChildWithName("Sites").isValid())
         apvts.state.addChild({ "Sites", {}, {} }, -1, nullptr);
+    world.rebuildGeometry();
 
     loadLfoShapesFromState();
     rebuildRoutes();
+
+    juce::MemoryBlock tableData;
+    if (tableData.fromBase64Encoding(apvts.state.getProperty("wavetable").toString()))
+        if (auto table = Wavetable::fromMemoryBlock(tableData, apvts.state.getProperty("wavetableName").toString()))
+            setWavetable(table);
 
     const juce::File sampleFile (apvts.state.getProperty("samplePath").toString());
     if (sampleFile.existsAsFile())

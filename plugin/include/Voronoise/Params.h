@@ -11,6 +11,7 @@ namespace Params
    // balls
    inline constexpr auto GRAVITY = "gravity";
    inline constexpr auto BOUNCINESS = "bounciness";
+   inline constexpr auto MIN_BOUNCE = "minBounce";
    inline constexpr auto DRAG = "drag";
    inline constexpr auto BALL_SIZE = "ballSize";
    inline constexpr auto SIZE_VARIATION = "sizeVariation";
@@ -38,10 +39,18 @@ namespace Params
    inline constexpr auto AMP_SUSTAIN = "ampSustain";
    inline constexpr auto AMP_RELEASE = "ampRelease";
    inline constexpr auto KEYS_LEVEL = "keysLevel";
+   inline constexpr auto HIT_LENGTH = "hitLength"; // how long a ball hit is held before it releases
 
    // sound
-   inline constexpr auto BALL_SOUND = "ballSound"; // waveform new balls play
-   inline constexpr auto PULSE_WIDTH = "pulseWidth";
+   inline constexpr auto BALL_SOUND = "ballSound"; // synth or sample for new balls
+   inline constexpr auto WT_POSITION = "wtPosition"; // where in the wavetable, 0 - 1
+
+   // random jumps every time a ball hits a line or the border
+   inline constexpr auto RND_POSITION = "rndPosition";
+   inline constexpr auto RND_PITCH = "rndPitch";
+   inline constexpr auto RND_LEVEL = "rndLevel";
+   inline constexpr auto RND_PAN = "rndPan";
+   inline constexpr auto HIT_DYNAMICS = "hitDynamics"; // how much softer impacts are quieter, 0 = every hit as loud as the key
    inline constexpr auto SAMPLE_START = "sampleStart";
    inline constexpr auto SAMPLE_END = "sampleEnd";
    inline constexpr auto SLICE_MODE = "sliceMode";

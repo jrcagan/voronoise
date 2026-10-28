@@ -4,36 +4,59 @@
 
 float Ball::update(float dt, const juce::Rectangle<float>& bounds, const std::vector<GeoUtils::Edge>& edges,
                    const Physics& physics) {
-   timeLeftAlive -= dt;
-   hitCooldown -= dt;
-
    // split the frame into smaller steps so fast balls don't skip through edges
    constexpr int SUBSTEPS = 4;
    const float h = dt / static_cast<float>(SUBSTEPS);
-   const float dragMultiplier = std::exp(-physics.drag * h);
 
    float hardestHit = 0.f;
+   for (int i = 0; i < SUBSTEPS; i++) {
+      hardestHit = juce::jmax(hardestHit, step(h, bounds, edges, physics).speed);
+   }
+   return hardestHit;
+}
 
-   for (int step = 0; step < SUBSTEPS; step++) {
-      velocity.y += physics.gravity * h;
-      velocity *= dragMultiplier;
-      x += velocity.x * h;
-      y += velocity.y * h;
-
-      for (size_t i = 0; i < edges.size(); i++) {
-         hardestHit = juce::jmax(hardestHit, bounceOffEdge(edges[i], i, physics));
-      }
-
-      hardestHit = juce::jmax(hardestHit, bounceOffWalls(bounds, physics));
-
-      // stop tracking edges it's made it all the way through
-      passingEdges.erase(std::remove_if(passingEdges.begin(), passingEdges.end(), [&](size_t index) {
-         juce::Point<float> closest;
-         return index >= edges.size() || getDistanceTo(edges[index], closest) >= radius;
-      }), passingEdges.end());
+Ball::Contact Ball::step(float h, const juce::Rectangle<float>& bounds, const std::vector<GeoUtils::Edge>& edges,
+                         const Physics& physics) {
+   // hanging where it spawned until its key is let go, its life hasn't started yet
+   if (isWaiting()) {
+      return {};
    }
 
-   return hardestHit;
+   timeLeftAlive -= h;
+   hitCooldown -= h;
+
+   // move by the average of the old and new velocity, which is exact under gravity. moving by the new
+   // one alone puts the ball half a step ahead, so every hit would land a couple of ms early
+   const auto before = velocity;
+   velocity.y += physics.gravity * h;
+   velocity *= std::exp(-physics.drag * h);
+   x += 0.5f * (before.x + velocity.x) * h;
+   y += 0.5f * (before.y + velocity.y) * h;
+
+   Contact hardest;
+   auto keepHardest = [&hardest](Contact contact) {
+      if (contact.speed > hardest.speed) {
+         hardest = contact;
+      }
+   };
+
+   for (size_t i = 0; i < edges.size(); i++) {
+      keepHardest(bounceOffEdge(edges[i], static_cast<int>(i), physics, h));
+   }
+   keepHardest(bounceOffWalls(bounds, physics, h));
+
+   // stop tracking edges it's made it all the way through
+   int kept = 0;
+   for (int i = 0; i < numPassing; i++) {
+      const int index = passingEdges[static_cast<size_t>(i)];
+      juce::Point<float> closest;
+      if (index < static_cast<int>(edges.size()) && getDistanceTo(edges[static_cast<size_t>(index)], closest) < radius) {
+         passingEdges[static_cast<size_t>(kept++)] = index;
+      }
+   }
+   numPassing = kept;
+
+   return hardest;
 }
 
 float Ball::update(float dt, const juce::Rectangle<float>& bounds, const std::vector<GeoUtils::Edge>& edges) {
@@ -49,9 +72,10 @@ bool Ball::shouldPlayHit(float impactSpeed) {
    return true;
 }
 
-float Ball::getHitGain(float impactSpeed) const {
+float Ball::getHitGain(float impactSpeed, float dynamics) const {
    const float hitAmount = juce::jlimit(0.f, 1.f, impactSpeed / LOUD_HIT_SPEED);
-   return hitAmount * juce::jlimit(0.f, 1.f, noteVelocity / 127.f);
+   const float impactScale = 1.f - juce::jlimit(0.f, 1.f, dynamics) * (1.f - hitAmount);
+   return impactScale * juce::jlimit(0.f, 1.f, noteVelocity / 127.f);
 }
 
 bool Ball::isAlive() const {
@@ -62,35 +86,64 @@ float Ball::getAlpha() const {
    return juce::jlimit(0.f, 1.f, timeLeftAlive / FADE_TIME);
 }
 
-bool Ball::isPassing(size_t index) const {
-   return std::find(passingEdges.begin(), passingEdges.end(), index) != passingEdges.end();
+bool Ball::isPassing(int index) const {
+   for (int i = 0; i < numPassing; i++) {
+      if (passingEdges[static_cast<size_t>(i)] == index) {
+         return true;
+      }
+   }
+   return false;
 }
 
-// returns the speed it hit a wall at, 0 if it didn't
-float Ball::bounceOffWalls(const juce::Rectangle<float>& bounds, const Physics& physics) {
-   float hardestHit = 0.f;
-
-   if (x - radius < bounds.getX()) {
-      x = bounds.getX() + radius;
-      hardestHit = juce::jmax(hardestHit, -velocity.x);
-      velocity.x = std::abs(velocity.x) * physics.restitution;
-   } else if (x + radius > bounds.getRight()) {
-      x = bounds.getRight() - radius;
-      hardestHit = juce::jmax(hardestHit, velocity.x);
-      velocity.x = -std::abs(velocity.x) * physics.restitution;
+namespace
+{
+   // how long ago it touched, from how far it went past and how fast it was going
+   float timeSinceContact(float overlap, float speed, float h) {
+      return speed > 1e-6f ? juce::jlimit(0.f, h, overlap / speed) : 0.f;
    }
+}
+
+// how hard it hit a wall (and when), nothing if it didn't
+Ball::Contact Ball::bounceOffWalls(const juce::Rectangle<float>& bounds, const Physics& physics, float h) {
+   Contact hardest;
+   auto hit = [&](float overlap, float speed) {
+      if (speed > hardest.speed) {
+         hardest = { speed, timeSinceContact(overlap, speed, h) };
+      }
+   };
+
+   // sideways there's no gravity, so the time after the touch is just spent moving back out
+   if (x - radius < bounds.getX()) {
+      hit(bounds.getX() + radius - x, -velocity.x);
+      velocity.x = std::abs(velocity.x) * physics.restitution;
+      x = bounds.getX() + radius + velocity.x * hardest.secondsAgo;
+   } else if (x + radius > bounds.getRight()) {
+      hit(x + radius - bounds.getRight(), velocity.x);
+      velocity.x = -std::abs(velocity.x) * physics.restitution;
+      x = bounds.getRight() - radius + velocity.x * hardest.secondsAgo;
+   }
+
+   // up and down: undo the gravity since the touch, bounce, then let gravity carry on for that time
+   auto bounceVertically = [&](float surface, float overlap, float speedIn, float sign) {
+      const auto before = hardest;
+      hit(overlap, speedIn);
+      const float ago = hardest.speed > before.speed ? hardest.secondsAgo : timeSinceContact(overlap, speedIn, h);
+      float atTouch = std::abs(velocity.y - physics.gravity * ago) * physics.restitution * sign;
+      // the floor never lets it settle: at least the min bounce back up
+      if (sign < 0.f) {
+         atTouch = -juce::jmax(std::abs(atTouch), physics.minBounce);
+      }
+      y = surface + atTouch * ago + 0.5f * physics.gravity * ago * ago;
+      velocity.y = atTouch + physics.gravity * ago;
+   };
 
    if (y - radius < bounds.getY()) {
-      y = bounds.getY() + radius;
-      hardestHit = juce::jmax(hardestHit, -velocity.y);
-      velocity.y = std::abs(velocity.y) * physics.restitution;
+      bounceVertically(bounds.getY() + radius, bounds.getY() + radius - y, -velocity.y, 1.f);
    } else if (y + radius > bounds.getBottom()) {
-      y = bounds.getBottom() - radius;
-      hardestHit = juce::jmax(hardestHit, velocity.y);
-      velocity.y = -std::abs(velocity.y) * physics.restitution;
+      bounceVertically(bounds.getBottom() - radius, y + radius - bounds.getBottom(), velocity.y, -1.f);
    }
 
-   return hardestHit;
+   return hardest;
 }
 
 // distance from the ball's centre to the closest point on the edge
@@ -107,17 +160,17 @@ float Ball::getDistanceTo(const GeoUtils::Edge& edge, juce::Point<float>& closes
    return centre.getDistanceFrom(closest);
 }
 
-// returns the speed it hit the edge at, 0 if it didn't
-float Ball::bounceOffEdge(const GeoUtils::Edge& edge, size_t index, const Physics& physics) {
+// how hard it hit the edge (and when), nothing if it didn't
+Ball::Contact Ball::bounceOffEdge(const GeoUtils::Edge& edge, int index, const Physics& physics, float h) {
    if (edge.u.getDistanceSquaredFrom(edge.v) < 1e-6 || isPassing(index)) {
-      return 0.f;
+      return {};
    }
 
    juce::Point<float> closest;
    const float distance = getDistanceTo(edge, closest);
 
    if (distance >= radius || distance < 1e-6f) {
-      return 0.f;
+      return {};
    }
 
    const auto normal = (juce::Point<float>(x, y) - closest) / distance;
@@ -125,10 +178,12 @@ float Ball::bounceOffEdge(const GeoUtils::Edge& edge, size_t index, const Physic
    const float speedIntoEdge = velocity.getDotProduct(normal);
    const bool movingIn = speedIntoEdge < 0.f;
 
+   const Contact contact { -speedIntoEdge, timeSinceContact(radius - distance, -speedIntoEdge, h) };
+
    // roll once when it first touches, then let it through until it's clear of the edge
-   if (movingIn && physics.random != nullptr && physics.random->nextFloat() < physics.passThroughChance) {
-      passingEdges.push_back(index);
-      return physics.passThroughPlays ? -speedIntoEdge : 0.f;
+   if (movingIn && numPassing < MAX_PASSING && physics.random != nullptr && physics.random->nextFloat() < physics.passThroughChance) {
+      passingEdges[static_cast<size_t>(numPassing++)] = index;
+      return physics.passThroughPlays ? contact : Contact {};
    }
 
    // push the ball back out so it's touching the edge instead of overlapping it
@@ -137,9 +192,24 @@ float Ball::bounceOffEdge(const GeoUtils::Edge& edge, size_t index, const Physic
 
    // only reflect if it's moving into the edge, otherwise it's already leaving
    if (movingIn) {
-      velocity -= normal * ((1.f + physics.restitution) * speedIntoEdge);
-      return -speedIntoEdge;
+      // rewind to the touch (undo gravity since then), bounce, then replay the rest of the step
+      const float ago = contact.secondsAgo;
+      const juce::Point<float> gravity { 0.f, physics.gravity };
+      const auto atTouch = velocity - gravity * ago;
+      auto bounced = atTouch - normal * ((1.f + physics.restitution) * atTouch.getDotProduct(normal));
+
+      // a line it can land on (facing upwards) sends it off at least the min bounce, so it hops
+      // instead of sliding along silently. walls and overhangs bounce as normal
+      constexpr float FACING_UP = -0.3f; // screen y points down
+      const float awaySpeed = bounced.getDotProduct(normal);
+      if (normal.y < FACING_UP && awaySpeed < physics.minBounce) {
+         bounced += normal * (physics.minBounce - awaySpeed);
+      }
+      x += bounced.x * ago;
+      y += bounced.y * ago + 0.5f * physics.gravity * ago * ago;
+      velocity = bounced + gravity * ago;
+      return contact;
    }
 
-   return 0.f;
+   return {};
 }

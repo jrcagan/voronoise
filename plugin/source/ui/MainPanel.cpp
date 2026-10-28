@@ -37,8 +37,10 @@ namespace UI
 
    void Computer::resized()
    {
+      // the screen is exactly the size of the world the balls live in
       const auto glass = getGlassArea();
-      canvas.setBounds(glass.reduced(6).withTrimmedBottom(STATUS_HEIGHT));
+      canvas.setBounds(glass.reduced(6).withTrimmedBottom(STATUS_HEIGHT)
+                           .withSizeKeepingCentre(static_cast<int>(BallWorld::WIDTH), static_cast<int>(BallWorld::HEIGHT)));
 
       auto keys = getLocalBounds().reduced(16, 10).removeFromBottom(32);
       keys.removeFromLeft(150); // room for the name badge
@@ -113,7 +115,7 @@ namespace UI
       const auto waveNames = getWaveformNames();
       const juce::String text = juce::String("VORONOISE/OS")
                                 + "   SITES " + juce::String(canvas.getNumSites()).paddedLeft('0', 2)
-                                + "   BALLS " + juce::String(static_cast<int>(canvas.getBalls().size())).paddedLeft('0', 3)
+                                + "   BALLS " + juce::String(canvas.getNumBalls()).paddedLeft('0', 3)
                                 + "   MODE " + (canvas.getMode() == Canvas::Mode::DrawSites ? "DRAW" : "BALL")
                                 + "   WAVE " + waveNames[static_cast<int>(canvas.getSound())].toUpperCase()
                                 + "   > " + (cursorOn ? "_" : " ");
@@ -430,6 +432,20 @@ namespace UI
    }
 
    //==============================================================================
+   void Stack::add(juce::Component* component, int height)
+   {
+      addAndMakeVisible(component);
+      items.emplace_back(component, height);
+   }
+
+   void Stack::resized()
+   {
+      auto area = getLocalBounds();
+      for (auto& [component, height] : items)
+         component->setBounds(area.removeFromTop(height));
+   }
+
+   //==============================================================================
    NoteFaders::NoteFaders(VoronoiseAudioProcessor& p) : processor(p)
    {
       const auto names = Scale::getNoteNames();
@@ -478,8 +494,8 @@ namespace UI
       addAndMakeVisible(computer);
       addAndMakeVisible(lfoPanel);
 
-      // five octaves fit next to the envelope, so no scrolling. c4 is middle c like everywhere else
-      keyboard.setAvailableRange(36, 96);
+      // six octaves fit across the panel, so no scrolling. c4 is middle c like everywhere else
+      keyboard.setAvailableRange(24, 96);
       keyboard.setScrollButtonsVisible(false);
       keyboard.setOctaveForMiddleC(4);
       keyboard.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, juce::Colour(0xffe9e6df));
@@ -493,16 +509,17 @@ namespace UI
 
       buildSections();
 
-      for (auto* tab : { &ballsTab, &notesTab, &sampleTab })
+      for (auto* tab : { &synthTab, &ballsTab, &notesTab, &sampleTab })
       {
          tab->setClickingTogglesState(true);
          tab->setRadioGroupId(3001);
          addAndMakeVisible(tab);
       }
+      synthTab.onClick = [this] { showPage(Page::Synth); };
       ballsTab.onClick = [this] { showPage(Page::Balls); };
       notesTab.onClick = [this] { showPage(Page::Notes); };
       sampleTab.onClick = [this] { showPage(Page::Sample); };
-      showPage(Page::Balls);
+      showPage(Page::Synth);
 
       setSize(WIDTH, HEIGHT);
       startTimerHz(10);
@@ -515,11 +532,6 @@ namespace UI
          return section.add(std::make_unique<ParamControl>(processor, id, name, style));
       };
 
-      // oscillator: which wave new balls get, plus the pulse width
-      oscillator = std::make_unique<Section>("Oscillator");
-      oscillator->addRow({ { make(*oscillator, Params::BALL_SOUND, "Ball sound", Style::Switch), 1.f } }, 52);
-      oscillator->addRow({ { make(*oscillator, Params::PULSE_WIDTH, "Pulse width"), 1.f }, { nullptr, 2.f } }, 72);
-
       geometry = std::make_unique<Section>("Geometry");
       geometry->addRow({ { make(*geometry, Params::LINES, "Lines", Style::Switch), 1.f } }, 52);
 
@@ -530,17 +542,35 @@ namespace UI
       play->addRow({ { make(*play, Params::PITCH_SOURCE, "Dropped pitch", Style::Switch), 2.f },
                      { make(*play, Params::SCALE_LOCK, "Scale lock"), 1.f } }, 54);
 
-      envelope = std::make_unique<Section>("Amp envelope");
-      envelope->addRow({ { envelope->addOwned(std::make_unique<EnvelopeDisplay>(processor)), 2.4f },
-                         { make(*envelope, Params::AMP_ATTACK, "Attack"), 1.f },
-                         { make(*envelope, Params::AMP_DECAY, "Decay"), 1.f },
-                         { make(*envelope, Params::AMP_SUSTAIN, "Sustain"), 1.f },
-                         { make(*envelope, Params::AMP_RELEASE, "Release"), 1.f },
-                         { make(*envelope, Params::KEYS_LEVEL, "Level"), 1.f } }, 90);
+      // every time a ball hits a line or the border, these can jump around
+      hitRandom = std::make_unique<Section>("Hit random");
+      hitRandom->addRow({ { make(*hitRandom, Params::RND_POSITION, "WT pos"), 1.f },
+                          { make(*hitRandom, Params::RND_PITCH, "Pitch"), 1.f },
+                          { make(*hitRandom, Params::RND_LEVEL, "Level"), 1.f },
+                          { make(*hitRandom, Params::RND_PAN, "Pan"), 1.f },
+                          { make(*hitRandom, Params::HIT_DYNAMICS, "Dynamics"), 1.f } }, 90);
+
+      // the synth: wavetable on top, amp envelope under it
+      synthPage = std::make_unique<Section>("Synth");
+      auto view = std::make_unique<WavetableView>(processor);
+      wavetableView = view.get();
+      auto* stack = static_cast<Stack*>(synthPage->addOwned(std::make_unique<Stack>()));
+      stack->add(make(*synthPage, Params::WT_POSITION, "WT pos"), 96);
+      stack->add(make(*synthPage, Params::BALL_SOUND, "Ball sound", Style::Switch), 50);
+      synthPage->addRow({ { synthPage->addOwned(std::move(view)), 3.2f }, { stack, 1.f } }, 150);
+      synthPage->addRow({ { nullptr, 1.f } }, 8); // breathing room
+      synthPage->addRow({ { synthPage->addOwned(std::make_unique<EnvelopeDisplay>(processor)), 2.4f },
+                          { make(*synthPage, Params::AMP_ATTACK, "Attack"), 1.f },
+                          { make(*synthPage, Params::AMP_DECAY, "Decay"), 1.f },
+                          { make(*synthPage, Params::AMP_SUSTAIN, "Sustain"), 1.f },
+                          { make(*synthPage, Params::AMP_RELEASE, "Release"), 1.f },
+                          { make(*synthPage, Params::HIT_LENGTH, "Hit len"), 1.f },
+                          { make(*synthPage, Params::KEYS_LEVEL, "Level"), 1.f } }, 98);
 
       ballsPage = std::make_unique<Section>("Balls");
       ballsPage->addRow({ { make(*ballsPage, Params::GRAVITY, "Gravity"), 1.f },
                           { make(*ballsPage, Params::BOUNCINESS, "Bounce"), 1.f },
+                          { make(*ballsPage, Params::MIN_BOUNCE, "Min bounce"), 1.f },
                           { make(*ballsPage, Params::DRAG, "Air drag"), 1.f },
                           { make(*ballsPage, Params::PASS_THROUGH, "Pass thru"), 1.f },
                           { make(*ballsPage, Params::PASS_THROUGH_PLAYS, "Pass plays"), 1.f } }, 96);
@@ -574,10 +604,9 @@ namespace UI
                            { make(*samplePage, Params::FADE_IN, "Fade in"), 1.f },
                            { make(*samplePage, Params::FADE_OUT, "Fade out"), 1.f } }, 74);
 
-      for (auto* section : { oscillator.get(), geometry.get(), midi.get(), envelope.get(), ballsPage.get(), notesPage.get(), samplePage.get() })
+      for (auto* section : { geometry.get(), midi.get(), hitRandom.get(), synthPage.get(), ballsPage.get(), notesPage.get(), samplePage.get() })
          addChildComponent(section);
-      envelope->setVisible(true);
-      oscillator->setVisible(true);
+      hitRandom->setVisible(true);
       geometry->setVisible(true);
       midi->setVisible(true);
    }
@@ -585,16 +614,18 @@ namespace UI
    void MainPanel::showPage(Page newPage)
    {
       page = newPage;
+      synthPage->setVisible(page == Page::Synth);
       ballsPage->setVisible(page == Page::Balls);
       notesPage->setVisible(page == Page::Notes);
       samplePage->setVisible(page == Page::Sample);
 
+      synthTab.setToggleState(page == Page::Synth, juce::dontSendNotification);
       ballsTab.setToggleState(page == Page::Balls, juce::dontSendNotification);
       notesTab.setToggleState(page == Page::Notes, juce::dontSendNotification);
       sampleTab.setToggleState(page == Page::Sample, juce::dontSendNotification);
 
       // tabs sit on top of whichever page is showing
-      for (auto* tab : { &ballsTab, &notesTab, &sampleTab })
+      for (auto* tab : { &synthTab, &ballsTab, &notesTab, &sampleTab })
          tab->toFront(false);
    }
 
@@ -683,7 +714,7 @@ namespace UI
       g.drawText("JUNESOUND", header.withTrimmedRight(14.f).withHeight(40.f).translated(0.f, 6.f), juce::Justification::centredRight);
       g.setFont(Theme::labelFont(9.f));
       g.setColour(Theme::labelDim);
-      g.drawText("3 LFO  /  5 WAVES  /  V0.1", header.withTrimmedRight(14.f).withTop(header.getY() + 38.f).withHeight(14.f),
+      g.drawText("WAVETABLE  /  3 LFO  /  V0.2", header.withTrimmedRight(14.f).withTop(header.getY() + 38.f).withHeight(14.f),
                  juce::Justification::centredRight);
 
       // lcd
@@ -711,26 +742,24 @@ namespace UI
 
       computer.setBounds(40, 74, 790, 452);
 
-      oscillator->setBounds(842, 74, 398, 150);
-      geometry->setBounds(842, 232, 398, 92);
-      midi->setBounds(842, 332, 398, 194);
+      geometry->setBounds(842, 74, 398, 92);
+      midi->setBounds(842, 174, 398, 182);
+      hitRandom->setBounds(842, 364, 398, 162);
 
       lfoPanel.setBounds(40, 538, 620, 310);
 
       deckArea = { 672, 538, 568, 310 };
-      for (auto* section : { ballsPage.get(), notesPage.get(), samplePage.get() })
+      for (auto* section : { synthPage.get(), ballsPage.get(), notesPage.get(), samplePage.get() })
          section->setBounds(deckArea);
 
-      envelope->setBounds(40, 860, 520, 130);
-
-      keysArea = { 572, 860, WIDTH - 40 - 572, 130 };
+      keysArea = { 40, 860, WIDTH - 80, 130 };
       auto keys = keysArea.reduced(12, 0).withTrimmedTop(Section::TITLE_HEIGHT).withTrimmedBottom(10);
       keyboard.setBounds(keys);
-      keyboard.setKeyWidth(static_cast<float>(keys.getWidth()) / 36.f); // white keys from c2 to c7
+      keyboard.setKeyWidth(static_cast<float>(keys.getWidth()) / 43.f); // white keys from c1 to c7
 
       // page tabs in the deck's title strip
-      auto tabs = deckArea.withHeight(Section::TITLE_HEIGHT).reduced(8, 3).removeFromRight(240);
-      for (auto* tab : { &ballsTab, &notesTab, &sampleTab })
+      auto tabs = deckArea.withHeight(Section::TITLE_HEIGHT).reduced(8, 3).removeFromRight(320);
+      for (auto* tab : { &synthTab, &ballsTab, &notesTab, &sampleTab })
       {
          tab->setBounds(tabs.removeFromLeft(76));
          tabs.removeFromLeft(4);

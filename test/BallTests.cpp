@@ -5,6 +5,7 @@
 #include "primitives/Ball.h"
 #include "Voronoise/PluginProcessor.h"
 #include "Voronoise/PluginEditor.h"
+#include "TestHelpers.h"
 
 namespace
 {
@@ -112,32 +113,42 @@ TEST(EditorBallTest, ModeControlsWhatClicksDo)
 {
    juce::ScopedJuceInitialiser_GUI juceInit;
    VoronoiseAudioProcessor processor;
+   TestHelpers::prepare(processor);
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
    auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
+   const auto &balls = processor.getWorld().getBalls();
 
    EXPECT_EQ(e.getMode(), UI::Canvas::Mode::DrawSites);
 
+   // drops are requests, they show up once the audio runs a block
    e.setMode(UI::Canvas::Mode::DropBalls);
    e.dropBall({ 100.f, 100.f });
    e.dropBall({ 200.f, 100.f });
-   EXPECT_EQ(e.getBalls().size(), 2u);
+   EXPECT_TRUE(balls.empty());
+   TestHelpers::runAudio(processor, 0.01);
+   EXPECT_EQ(balls.size(), 2u);
+
+   // the canvas gets a snapshot to draw
+   e.syncWithProcessor();
+   TestHelpers::runAudio(processor, 0.05);
+   e.syncWithProcessor();
+   EXPECT_EQ(e.getNumBalls(), 2);
 
    // balls stay alive a while, then get cleaned up
-   for (int i = 0; i < 60; i++)
-      e.updateBalls(1.f / 60.f);
-   EXPECT_EQ(e.getBalls().size(), 2u);
-
-   for (int i = 0; i < 60 * 10; i++)
-      e.updateBalls(1.f / 60.f);
-   EXPECT_TRUE(e.getBalls().empty());
+   TestHelpers::runAudio(processor, 1.0);
+   EXPECT_EQ(balls.size(), 2u);
+   TestHelpers::runAudio(processor, 10.0);
+   EXPECT_TRUE(balls.empty());
 }
 
 TEST(EditorBallTest, EdgesFollowSites)
 {
    juce::ScopedJuceInitialiser_GUI juceInit;
    VoronoiseAudioProcessor processor;
+   TestHelpers::prepare(processor);
    auto editor = std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
    auto &e = dynamic_cast<VoronoiseAudioProcessorEditor &>(*editor).getCanvas();
+   auto &world = processor.getWorld();
 
    EXPECT_TRUE(e.getEdges().empty());
 
@@ -149,17 +160,22 @@ TEST(EditorBallTest, EdgesFollowSites)
 
    EXPECT_FALSE(e.getEdges().empty());
 
-   // balls dropped around the window should stay inside it while bouncing off the cells
-   for (float x = 20.f; x < 400.f; x += 40.f)
-      e.dropBall({ x, 40.f });
+   // the audio side picks up the new lines on its next block
+   TestHelpers::runAudio(processor, 0.01);
+   EXPECT_EQ(world.getAudioGeometry().edges.size(), e.getEdges().size());
 
+   // balls dropped around the screen should stay inside it while bouncing off the cells
+   for (float x = 20.f; x < 400.f; x += 40.f)
+      world.dropBall({ x, 40.f });
+
+   const juce::Rectangle<float> screen(0.f, 0.f, BallWorld::WIDTH, BallWorld::HEIGHT);
    for (int i = 0; i < 60 * 3; i++)
    {
-      e.updateBalls(1.f / 60.f);
-      for (const auto &ball : e.getBalls())
+      TestHelpers::runAudio(processor, 1.0 / 60.0);
+      for (const auto &ball : world.getBalls())
       {
          ASSERT_TRUE(std::isfinite(ball.getX()) && std::isfinite(ball.getY()));
-         EXPECT_TRUE(e.getLocalBounds().toFloat().expanded(0.01f).contains(ball.getX(), ball.getY()));
+         EXPECT_TRUE(screen.expanded(0.01f).contains(ball.getX(), ball.getY()));
       }
    }
 

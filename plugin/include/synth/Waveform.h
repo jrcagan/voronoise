@@ -2,16 +2,13 @@
 
 #include <JuceHeader.h>
 
-// the sound a ball makes when it hits an edge
+// the sound a ball makes when it hits an edge: the wavetable synth or the loaded sample
 enum class Waveform {
-   Sine,
-   Saw,
-   Triangle,
-   Pulse,
+   Synth,
    Sample,
    END
 };
 
 inline juce::StringArray getWaveformNames() {
-   return { "Sine", "Saw", "Triangle", "Pulse", "Sample" };
+   return { "Synth", "Sample" };
 }

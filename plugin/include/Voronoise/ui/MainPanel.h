@@ -9,6 +9,7 @@
 #include "Voronoise/ui/LfoPanel.h"
 #include "Voronoise/ui/ParamControl.h"
 #include "Voronoise/ui/SampleView.h"
+#include "Voronoise/ui/WavetableView.h"
 
 namespace UI
 {
@@ -122,6 +123,17 @@ namespace UI
       std::array<float, 4> dragStart {}; // knob values when the drag started
    };
 
+   // a column of components, each with a fixed height, for spots a section row can't do
+   class Stack : public juce::Component
+   {
+   public:
+      void add(juce::Component* component, int height);
+      void resized() override;
+
+   private:
+      std::vector<std::pair<juce::Component*, int>> items;
+   };
+
    // the twelve note probability faders, notes outside the scale get dimmed
    class NoteFaders : public juce::Component, private juce::Timer
    {
@@ -148,9 +160,11 @@ namespace UI
 
       Canvas& getCanvas() { return computer.getCanvas(); }
       LfoPanel& getLfoPanel() { return lfoPanel; }
+      WavetableView& getWavetableView() { return *wavetableView; }
       juce::MidiKeyboardComponent& getKeyboard() { return keyboard; }
 
       enum class Page {
+         Synth,
          Balls,
          Notes,
          Sample
@@ -174,10 +188,11 @@ namespace UI
       LfoPanel lfoPanel;
       juce::MidiKeyboardComponent keyboard;
 
-      std::unique_ptr<Section> oscillator, geometry, midi, envelope;
-      std::unique_ptr<Section> ballsPage, notesPage, samplePage;
-      juce::TextButton ballsTab { "BALLS" }, notesTab { "NOTES" }, sampleTab { "SAMPLE" };
-      Page page = Page::Balls;
+      std::unique_ptr<Section> geometry, midi, hitRandom;
+      std::unique_ptr<Section> synthPage, ballsPage, notesPage, samplePage;
+      WavetableView* wavetableView = nullptr; // owned by the synth page
+      juce::TextButton synthTab { "SYNTH" }, ballsTab { "BALLS" }, notesTab { "NOTES" }, sampleTab { "SAMPLE" };
+      Page page = Page::Synth;
 
       std::unique_ptr<juce::FileChooser> fileChooser;
 

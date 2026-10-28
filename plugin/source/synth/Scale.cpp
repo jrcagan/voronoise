@@ -1,41 +1,35 @@
 #include "synth/Scale.h"
-#include <vector>
+#include <array>
 
 namespace Scale
 {
    namespace
    {
-      // semitones above the root
-      std::vector<int> getIntervals(Type type) {
+      // which of the 12 semitones above the root are in each scale (a fixed table, no allocating)
+      std::array<bool, 12> getSemitones(Type type) {
+         auto from = [](std::initializer_list<int> intervals) {
+            std::array<bool, 12> semitones {};
+            for (int interval : intervals)
+               semitones[static_cast<size_t>(interval)] = true;
+            return semitones;
+         };
+
          switch (type) {
-            case Type::Chromatic:       return { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
-            case Type::Major:           return { 0, 2, 4, 5, 7, 9, 11 };
-            case Type::Minor:           return { 0, 2, 3, 5, 7, 8, 10 };
-            case Type::Dorian:          return { 0, 2, 3, 5, 7, 9, 10 };
-            case Type::Phrygian:        return { 0, 1, 3, 5, 7, 8, 10 };
-            case Type::Lydian:          return { 0, 2, 4, 6, 7, 9, 11 };
-            case Type::Mixolydian:      return { 0, 2, 4, 5, 7, 9, 10 };
-            case Type::HarmonicMinor:   return { 0, 2, 3, 5, 7, 8, 11 };
-            case Type::MajorPentatonic: return { 0, 2, 4, 7, 9 };
-            case Type::MinorPentatonic: return { 0, 3, 5, 7, 10 };
-            case Type::Blues:           return { 0, 3, 5, 6, 7, 10 };
-            case Type::WholeTone:       return { 0, 2, 4, 6, 8, 10 };
+            case Type::Chromatic:       return from({ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 });
+            case Type::Major:           return from({ 0, 2, 4, 5, 7, 9, 11 });
+            case Type::Minor:           return from({ 0, 2, 3, 5, 7, 8, 10 });
+            case Type::Dorian:          return from({ 0, 2, 3, 5, 7, 9, 10 });
+            case Type::Phrygian:        return from({ 0, 1, 3, 5, 7, 8, 10 });
+            case Type::Lydian:          return from({ 0, 2, 4, 6, 7, 9, 11 });
+            case Type::Mixolydian:      return from({ 0, 2, 4, 5, 7, 9, 10 });
+            case Type::HarmonicMinor:   return from({ 0, 2, 3, 5, 7, 8, 11 });
+            case Type::MajorPentatonic: return from({ 0, 2, 4, 7, 9 });
+            case Type::MinorPentatonic: return from({ 0, 3, 5, 7, 10 });
+            case Type::Blues:           return from({ 0, 3, 5, 6, 7, 10 });
+            case Type::WholeTone:       return from({ 0, 2, 4, 6, 8, 10 });
             case Type::END:
-            default:                    return { 0 };
+            default:                    return from({ 0 });
          }
-      }
-
-      std::vector<int> getAllowedNotes(const Settings& settings) {
-         std::vector<int> notes;
-         const int low = juce::jlimit(0, 127, juce::jmin(settings.lowestNote, settings.highestNote));
-         const int high = juce::jlimit(0, 127, juce::jmax(settings.lowestNote, settings.highestNote));
-
-         for (int note = low; note <= high; note++) {
-            if (isAllowed(note, settings)) {
-               notes.push_back(note);
-            }
-         }
-         return notes;
       }
 
       int pitchClass(int noteNumber) {
@@ -58,9 +52,11 @@ namespace Scale
    }
 
    std::array<bool, 12> getPitchClassMask(Type type, int root) {
+      const auto semitones = getSemitones(type);
       std::array<bool, 12> mask {};
-      for (int interval : getIntervals(type)) {
-         mask[static_cast<size_t>(pitchClass(root + interval))] = true;
+      for (int interval = 0; interval < 12; interval++) {
+         if (semitones[static_cast<size_t>(interval)])
+            mask[static_cast<size_t>(pitchClass(root + interval))] = true;
       }
       return mask;
    }
@@ -80,55 +76,72 @@ namespace Scale
       return settings.weights[pc] > 0.f;
    }
 
+   // none of these allocate, they're called on the audio thread when midi drops balls
+
    int chooseByHeight(float amountUp, const Settings& settings) {
-      const auto notes = getAllowedNotes(settings);
-      if (notes.empty()) {
-         return applyOctaveShift(juce::jlimit(0, 127, settings.lowestNote), settings);
+      const int low = juce::jlimit(0, 127, juce::jmin(settings.lowestNote, settings.highestNote));
+      const int high = juce::jlimit(0, 127, juce::jmax(settings.lowestNote, settings.highestNote));
+
+      int count = 0;
+      for (int note = low; note <= high; note++) {
+         count += isAllowed(note, settings) ? 1 : 0;
+      }
+      if (count == 0) {
+         return applyOctaveShift(low, settings);
       }
 
-      const auto index = juce::jmin(notes.size() - 1,
-                                    static_cast<size_t>(juce::jlimit(0.f, 1.f, amountUp) * static_cast<float>(notes.size())));
-      return applyOctaveShift(notes[index], settings);
+      const int wanted = juce::jmin(count - 1, static_cast<int>(juce::jlimit(0.f, 1.f, amountUp) * static_cast<float>(count)));
+      int seen = 0;
+      for (int note = low; note <= high; note++) {
+         if (isAllowed(note, settings) && seen++ == wanted) {
+            return applyOctaveShift(note, settings);
+         }
+      }
+      return applyOctaveShift(high, settings);
    }
 
    int chooseRandom(juce::Random& random, const Settings& settings) {
-      const auto notes = getAllowedNotes(settings);
-      if (notes.empty()) {
-         return applyOctaveShift(juce::jlimit(0, 127, settings.lowestNote), settings);
-      }
+      const int low = juce::jlimit(0, 127, juce::jmin(settings.lowestNote, settings.highestNote));
+      const int high = juce::jlimit(0, 127, juce::jmax(settings.lowestNote, settings.highestNote));
 
       float total = 0.f;
-      for (int note : notes) {
-         total += settings.weights[static_cast<size_t>(pitchClass(note))];
+      int last = -1;
+      for (int note = low; note <= high; note++) {
+         if (isAllowed(note, settings)) {
+            total += settings.weights[static_cast<size_t>(pitchClass(note))];
+            last = note;
+         }
+      }
+      if (last < 0) {
+         return applyOctaveShift(low, settings);
       }
 
       // walk along the weights until we pass the random point
       float point = random.nextFloat() * total;
-      for (int note : notes) {
+      for (int note = low; note <= high; note++) {
+         if (! isAllowed(note, settings)) {
+            continue;
+         }
          point -= settings.weights[static_cast<size_t>(pitchClass(note))];
          if (point <= 0.f) {
             return applyOctaveShift(note, settings);
          }
       }
-
-      return applyOctaveShift(notes.back(), settings);
+      return applyOctaveShift(last, settings);
    }
 
    int snap(int noteNumber, const Settings& settings) {
-      const auto notes = getAllowedNotes(settings);
-      if (notes.empty()) {
-         return applyOctaveShift(noteNumber, settings);
-      }
+      const int low = juce::jlimit(0, 127, juce::jmin(settings.lowestNote, settings.highestNote));
+      const int high = juce::jlimit(0, 127, juce::jmax(settings.lowestNote, settings.highestNote));
 
-      int closest = notes.front();
-      for (int note : notes) {
-         // ties go to the lower note since notes are ascending and this uses <
-         if (std::abs(note - noteNumber) < std::abs(closest - noteNumber)) {
+      int closest = -1;
+      for (int note = low; note <= high; note++) {
+         // ties go to the lower note since this walks upwards and uses <
+         if (isAllowed(note, settings) && (closest < 0 || std::abs(note - noteNumber) < std::abs(closest - noteNumber))) {
             closest = note;
          }
       }
-
-      return applyOctaveShift(closest, settings);
+      return applyOctaveShift(closest < 0 ? noteNumber : closest, settings);
    }
 
    int applyOctaveShift(int noteNumber, const Settings& settings) {

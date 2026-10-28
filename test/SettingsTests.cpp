@@ -10,6 +10,7 @@
 #include "Voronoise/Params.h"
 #include "Voronoise/PluginProcessor.h"
 #include "Voronoise/PluginEditor.h"
+#include "TestHelpers.h"
 
 namespace
 {
@@ -63,14 +64,19 @@ namespace
       std::unique_ptr<juce::AudioProcessorEditor> editor;
       VoronoiseAudioProcessorEditor *editorPtr = nullptr;
       UI::Canvas *e = nullptr;
+      BallWorld *w = nullptr;
 
       EditorFixture()
       {
-         processor.prepareToPlay(SAMPLE_RATE, 512);
+         TestHelpers::prepare(processor);
          editor.reset(processor.createEditor());
          editorPtr = dynamic_cast<VoronoiseAudioProcessorEditor *>(editor.get());
          e = &editorPtr->getCanvas();
+         w = &processor.getWorld();
       }
+
+      // the balls move (and new lines reach them) as the audio runs
+      void run(double seconds) { TestHelpers::runAudio(processor, seconds); }
 
       void addSites()
       {
@@ -232,25 +238,31 @@ TEST(SlicerTest, SensitivityFiltersQuietHits)
 }
 
 //==============================================================================
-TEST(HitSynthSettingsTest, PulseWidthChangesTheDutyCycle)
+TEST(HitSynthSettingsTest, PulseSweepTableChangesTheDutyCycle)
 {
-   for (float width : { 0.1f, 0.5f, 0.8f })
+   // the pulse sweep wavetable goes from a square (0.5) at the start to a thin 0.05 pulse at the end
+   for (auto [position, width] : { std::pair{ 0.f, 0.5f }, { 0.5f, 0.27f }, { 1.f, 0.05f } })
    {
       HitSynth synth;
       synth.prepareToPlay(SAMPLE_RATE);
+      synth.setWavetable(Wavetable::createPreset(Wavetable::Preset::PulseSweep));
       HitSynth::Settings settings;
-      settings.pulseWidth = width;
+      settings.position = position;
       synth.setSettings(settings);
-      synth.trigger({ 45, 1.f, Waveform::Pulse }); // 110hz, long cycles
+      synth.trigger({ 45, 1.f, Waveform::Synth }); // 110hz, long cycles
 
       auto buffer = render(synth, 4800);
-      // high part is above the average, count how much of the time it's there
+      // the dc gets taken out, so the high part is the bit above the average
+      double mean = 0.0;
+      for (int i = 480; i < 4800; i++)
+         mean += buffer.getSample(0, i);
+      mean /= 4320.0;
       int high = 0;
       for (int i = 480; i < 4800; i++)
-         if (buffer.getSample(0, i) > 0.f)
+         if (buffer.getSample(0, i) > mean)
             high++;
 
-      EXPECT_NEAR(static_cast<float>(high) / (4800.f - 480.f), width, 0.05f) << width;
+      EXPECT_NEAR(static_cast<float>(high) / 4320.f, width, 0.05f) << position;
    }
 }
 
@@ -375,7 +387,7 @@ TEST(BallPhysicsTest, PassThroughAndDrag)
    }
    EXPECT_GT(lowest, 150.f + ghost.radius); // made it all the way under the line
    EXPECT_GT(loudest, 0.f); // still played on the way through
-   EXPECT_TRUE(ghost.passingEdges.empty()); // and stopped tracking it once clear
+   EXPECT_EQ(ghost.numPassing, 0); // and stopped tracking it once clear
 
    // silent pass through
    always.passThroughPlays = false;
@@ -441,10 +453,10 @@ TEST(EditorSettingsTest, BallSettingsApplyToNewBalls)
    setParam(f.processor, Params::MAX_BALLS, 3.f);
 
    for (int i = 0; i < 5; i++)
-      f.e->dropBall({ 100.f + 50.f * static_cast<float>(i), 50.f });
+      f.w->dropBall({ 100.f + 50.f * static_cast<float>(i), 50.f });
 
-   ASSERT_EQ(f.e->getBalls().size(), 3u);
-   for (const auto &ball : f.e->getBalls())
+   ASSERT_EQ(f.w->getBalls().size(), 3u);
+   for (const auto &ball : f.w->getBalls())
    {
       EXPECT_FLOAT_EQ(ball.radius, 15.f);
       EXPECT_FLOAT_EQ(ball.timeLeftAlive, 2.f);
@@ -453,14 +465,12 @@ TEST(EditorSettingsTest, BallSettingsApplyToNewBalls)
 
    // zero gravity keeps them where they are
    setParam(f.processor, Params::GRAVITY, 0.f);
-   for (int i = 0; i < 30; i++)
-      f.e->updateBalls(1.f / 60.f);
-   EXPECT_FLOAT_EQ(f.e->getBalls().front().getY(), 50.f);
+   f.run(0.5);
+   EXPECT_FLOAT_EQ(f.w->getBalls().front().getY(), 50.f);
 
    // gone after their 2 seconds
-   for (int i = 0; i < 120; i++)
-      f.e->updateBalls(1.f / 60.f);
-   EXPECT_TRUE(f.e->getBalls().empty());
+   f.run(2.0);
+   EXPECT_TRUE(f.w->getBalls().empty());
 }
 
 TEST(EditorSettingsTest, NoteSettingsApplyToBalls)
@@ -475,15 +485,16 @@ TEST(EditorSettingsTest, NoteSettingsApplyToBalls)
       setParam(f.processor, Params::noteWeight(pc), pc == 4 ? 1.f : 0.f);
 
    for (int i = 0; i < 10; i++)
-      f.e->dropBall({ 300.f, 50.f });
-   for (const auto &ball : f.e->getBalls())
+      f.w->dropBall({ 300.f, 50.f });
+   for (const auto &ball : f.w->getBalls())
       EXPECT_EQ(ball.noteNumber % 12, 4);
 
-   // midi balls snap when asked
+   // midi balls snap when asked (once the sites have reached the audio side)
+   f.run(0.01);
    setParam(f.processor, Params::MIDI_DROP_CHANCE, 1.f);
    setParam(f.processor, Params::SNAP_MIDI, 1.f);
-   f.e->spawnBall(61, 100);
-   EXPECT_EQ(f.e->getBalls().back().noteNumber % 12, 4);
+   f.w->spawnMidiBall(61, 100);
+   EXPECT_EQ(f.w->getBalls().back().noteNumber % 12, 4);
 }
 
 TEST(EditorSettingsTest, WholePanelPaints)
@@ -494,7 +505,7 @@ TEST(EditorSettingsTest, WholePanelPaints)
    // every page and lfo, with and without a modulation on screen
    auto &panel = f.editorPtr->getMainPanel();
    f.processor.addModulation(1, Params::GRAVITY, 0.4f);
-   for (auto page : { UI::MainPanel::Page::Balls, UI::MainPanel::Page::Notes, UI::MainPanel::Page::Sample })
+   for (auto page : { UI::MainPanel::Page::Synth, UI::MainPanel::Page::Balls, UI::MainPanel::Page::Notes, UI::MainPanel::Page::Sample })
    {
       panel.showPage(page);
       for (int lfo = 0; lfo < Params::NUM_LFOS; lfo++)
@@ -569,24 +580,28 @@ TEST(EditorSettingsTest, MidiBallsDropFromCellCentresByChance)
    const auto &centres = f.e->getCellCentres();
    ASSERT_EQ(centres.size(), 5u); // one per site
 
-   // every centre is inside the window
+   // every centre is on the screen
+   const juce::Rectangle<float> screen(0.f, 0.f, BallWorld::WIDTH, BallWorld::HEIGHT);
    for (const auto &c : centres)
-      EXPECT_TRUE(f.e->getLocalBounds().toFloat().contains(c));
+      EXPECT_TRUE(screen.contains(c));
+
+   // the audio side needs the new sites before midi can drop from them
+   f.run(0.01);
 
    // chance 0 = never, 1 = always
    setParam(f.processor, Params::MIDI_DROP_CHANCE, 0.f);
    for (int i = 0; i < 50; i++)
-      f.e->spawnBall(60, 100);
-   EXPECT_TRUE(f.e->getBalls().empty());
+      f.w->spawnMidiBall(60, 100);
+   EXPECT_TRUE(f.w->getBalls().empty());
 
    setParam(f.processor, Params::MIDI_DROP_CHANCE, 1.f);
    setParam(f.processor, Params::MAX_BALLS, 500.f);
    for (int i = 0; i < 50; i++)
-      f.e->spawnBall(60, 100);
-   ASSERT_EQ(f.e->getBalls().size(), 50u);
+      f.w->spawnMidiBall(60, 100);
+   ASSERT_EQ(f.w->getBalls().size(), 50u);
 
    // each one starts on a cell centre
-   for (const auto &ball : f.e->getBalls())
+   for (const auto &ball : f.w->getBalls())
    {
       bool onCentre = false;
       for (const auto &c : centres)
@@ -595,11 +610,10 @@ TEST(EditorSettingsTest, MidiBallsDropFromCellCentresByChance)
    }
 
    // somewhere in between drops roughly that often
-   setParam(f.processor, Params::MAX_BALLS, 500.f);
    setParam(f.processor, Params::MIDI_DROP_CHANCE, 0.3f);
-   const auto before = f.e->getBalls().size();
+   const auto before = f.w->getBalls().size();
    for (int i = 0; i < 400; i++)
-      f.e->spawnBall(60, 100);
-   const auto dropped = static_cast<float>(f.e->getBalls().size() - before);
+      f.w->spawnMidiBall(60, 100);
+   const auto dropped = static_cast<float>(f.w->getBalls().size() - before);
    EXPECT_NEAR(dropped / 400.f, 0.3f, 0.08f);
 }

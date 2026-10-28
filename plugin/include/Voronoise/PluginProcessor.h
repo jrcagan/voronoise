@@ -8,9 +8,12 @@
 #include "DSP/Fifo.h"
 #include "primitives/Ball.h"
 #include "Voronoise/Params.h"
+#include "world/BallWorld.h"
 
 //==============================================================================
-class VoronoiseAudioProcessor final : public juce::AudioProcessor
+class VoronoiseAudioProcessor final : public juce::AudioProcessor,
+                                      private juce::ValueTree::Listener,
+                                      private juce::Timer
 {
 public:
     //==============================================================================
@@ -75,15 +78,10 @@ public:
     using DSP_Order = std::array<DSP_Options, static_cast<size_t>(DSP_Options::END)>;
     SimpleMBComp::Fifo<DSP_Order> dspOrderFifo;
 
-    // note-ons get passed from the audio thread to the editor through this,
-    // the editor pulls them on a timer so the audio thread never touches the ui
-    struct NoteEvent {
-        int noteNumber = 0;
-        int velocity = 0;
-    };
-    SimpleMBComp::Fifo<NoteEvent, 128> noteEventFifo;
+    // the sites, lines and balls. the balls bounce on the audio thread so hits are sample accurate
+    BallWorld& getWorld() { return world; }
 
-    // ball hits go the other way, editor -> audio thread
+    // hits that play at the start of the next block, on top of the ones the balls make
     SimpleMBComp::Fifo<HitSynth::Hit, 256> hitFifo;
 
     // notes clicked on the on-screen keyboard, merged into the midi every block
@@ -94,6 +92,12 @@ public:
     juce::String getSampleName() const;
     juce::String getSampleWildcard();
     SampleData::Ptr getCurrentSample() const; // message thread only
+
+    // the wavetable keys and ball hits play, message thread only. setting one also hands it to the
+    // audio thread, and it's saved with the project
+    Wavetable::Ptr getWavetable() const { return wavetable; }
+    void setWavetable(Wavetable::Ptr newWavetable);
+    bool loadWavetable(const juce::File& file); // cuts an audio file into frames
 
     // current value of a setting with the lfos added on, safe to call from any thread
     float getParamValue(juce::StringRef id) const;
@@ -127,6 +131,14 @@ public:
     static constexpr int MAX_MODULATIONS = 96;
 private:
     void rebuildRoutes();
+    void valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree& child) override;
+    void valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree& child, int index) override;
+    void timerCallback() override; // catches lfos moving the lines setting
+    void renderHits(juce::AudioBuffer<float>& buffer);
+
+    BallWorld world { *this };
+    std::array<BallWorld::HitEvent, BallWorld::MAX_HITS_PER_BLOCK> blockHits;
+    std::array<juce::String, 12> noteWeightIDs; // built once so the audio thread doesn't make strings
     void loadLfoShapesFromState();
     void updateLfos(int numSamples, bool noteStarted);
 
@@ -189,6 +201,10 @@ private:
     // keeps every loaded sample alive until the audio thread is done with it,
     // so nothing ever gets freed on the audio thread
     juce::ReferenceCountedArray<HitSynth::SampleData> loadedSamples;
+
+    Wavetable::Ptr wavetable;
+    SimpleMBComp::Fifo<Wavetable::Ptr, 16> wavetableFifo;
+    juce::ReferenceCountedArray<Wavetable> loadedWavetables; // same deal as loadedSamples
     DSP_Choice<juce::dsp::Phaser<float>> phaser;
     DSP_Choice<juce::dsp::Reverb> reverb;
     DSP_Choice<juce::dsp::LadderFilter<float>> filter;

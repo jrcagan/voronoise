@@ -11,6 +11,8 @@ add_executable(${PROJECT_NAME}
    HitSynthTests.cpp
    SettingsTests.cpp
    LfoTests.cpp
+   WavetableTests.cpp
+   TimingTests.cpp
 )
 
 target_include_directories(${PROJECT_NAME}

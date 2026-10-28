@@ -1,31 +1,29 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <map>
+#include <memory>
 #include <vector>
 #include "Voronoise/PluginProcessor.h"
 #include "Voronoise/Params.h"
-#include "geometry/Utils.h"
-#include "geometry/Voronoi.h"
-#include "primitives/Ball.h"
+#include "world/BallWorld.h"
 
 namespace UI
 {
-   // the screen inside the computer: sites, voronoi/delaunay lines and the bouncing balls
-   class Canvas : public juce::Component, private juce::Timer, private juce::ValueTree::Listener
+   // the screen inside the computer. it draws the world (the balls bounce on the audio thread)
+   // and turns clicks into sites and ball drops
+   class Canvas : public juce::Component, private juce::Timer
    {
    public:
       explicit Canvas(VoronoiseAudioProcessor& processor);
       ~Canvas() override;
 
       void paint(juce::Graphics& g) override;
-      void resized() override;
       void mouseDown(const juce::MouseEvent& event) override;
       void mouseDoubleClick(const juce::MouseEvent& event) override;
 
+      // these go to the audio thread and happen on its next block
       void spawnBall(int noteNumber, int velocity);
       void dropBall(juce::Point<float> position);
-      void updateBalls(float dt);
       void clearBalls();
       void clearSites();
 
@@ -44,43 +42,20 @@ namespace UI
       // note a hand dropped ball plays, higher on screen is higher pitch
       int getNoteForHeight(float y) const;
 
-      // picks up setting changes and state swaps (loading a project), runs on the timer
+      // picks up the newest ball positions and any lines changes, runs on the timer
       void syncWithProcessor();
 
-      const std::vector<Ball>& getBalls() const { return balls; }
-      const std::vector<GeoUtils::Edge>& getEdges() const { return edges; }
-      const std::vector<juce::Point<float>>& getCellCentres() const { return cellCentres; }
-      int getNumSites() const { return static_cast<int>(points.size()); }
+      const std::vector<GeoUtils::Edge>& getEdges() const { return processor.getWorld().getGeometry()->edges; }
+      const std::vector<juce::Point<float>>& getCellCentres() const { return processor.getWorld().getGeometry()->cellCentres; }
+      int getNumSites() const { return static_cast<int>(processor.getWorld().getGeometry()->sites.size()); }
+      int getNumBalls() const { return snapshot->numBalls; }
 
    private:
       void timerCallback() override;
-      void valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child) override;
-      void valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree& child, int index) override;
-
-      // recomputes the triangulation/voronoi from the sites, only when they or the size change
-      void rebuildGeometry();
-      void addBall(Ball ball);
-      // size, speed, lifetime, note and colour from the settings
-      void setupBall(Ball& ball, int noteNumber, float sizeScale);
-
-      Params::Lines getLinesSetting() const;
-      Ball::Physics getPhysics();
-      static juce::Point<float> getCentroid(const std::vector<GeoUtils::Point>& vertices);
 
       VoronoiseAudioProcessor& processor;
-      std::vector<GeoUtils::Point> points;
-      std::vector<GeoUtils::Triangle> triangles;
-      std::map<GeoUtils::Point, Voronoi::Cell, GeoUtils::PointComparator> voronoiCells;
-      std::vector<GeoUtils::Edge> edges; // voronoi + delaunay edges the balls bounce off and play on
-      std::vector<juce::Point<float>> cellCentres; // where midi balls drop from
-      std::vector<Ball> balls;
-      juce::ValueTree valueTree;
-
+      std::unique_ptr<BallWorld::Snapshot> snapshot; // too big to keep inline comfortably
       Mode mode = Mode::DrawSites;
-      Params::Lines lines = Params::Lines::Both;
-
-      juce::Random random;
-      double lastTimerMs = 0.0;
 
       JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Canvas)
    };

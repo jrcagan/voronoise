@@ -42,18 +42,22 @@ namespace
    }
 }
 
-TEST(HitSynthTest, EveryOscillatorMakesSoundAtTheRightPitch)
+TEST(HitSynthTest, EveryWavetableFrameMakesSoundAtTheRightPitch)
 {
-   for (auto waveform : { Waveform::Sine, Waveform::Saw, Waveform::Triangle, Waveform::Pulse })
+   // the default table is sine, triangle, saw, square
+   for (float position : { 0.f, 1.f / 3.f, 2.f / 3.f, 1.f })
    {
       HitSynth synth;
       synth.prepareToPlay(SAMPLE_RATE);
+      HitSynth::Settings settings;
+      settings.position = position;
+      synth.setSettings(settings);
 
       // a4 = 440hz
-      auto buffer = renderHit(synth, { 69, 1.f, waveform }, 4800);
+      auto buffer = renderHit(synth, { 69, 1.f, Waveform::Synth }, 4800);
 
-      EXPECT_GT(buffer.getMagnitude(0, 0, 4800), 0.1f) << "waveform " << static_cast<int>(waveform);
-      EXPECT_NEAR(estimateFrequency(buffer, 0, 4800), 440.0, 15.0) << "waveform " << static_cast<int>(waveform);
+      EXPECT_GT(buffer.getMagnitude(0, 0, 4800), 0.1f) << "position " << position;
+      EXPECT_NEAR(estimateFrequency(buffer, 0, 4800), 440.0, 15.0) << "position " << position;
 
       for (int i = 0; i < 4800; i++)
          ASSERT_TRUE(std::isfinite(buffer.getSample(0, i)));
@@ -65,7 +69,7 @@ TEST(HitSynthTest, OscillatorsDecayAndFreeTheirVoice)
    HitSynth synth;
    synth.prepareToPlay(SAMPLE_RATE);
 
-   auto buffer = renderHit(synth, { 60, 1.f, Waveform::Saw }, static_cast<int>(SAMPLE_RATE * 5));
+   auto buffer = renderHit(synth, { 60, 1.f, Waveform::Synth }, static_cast<int>(SAMPLE_RATE * 5));
 
    EXPECT_EQ(synth.getNumActiveVoices(), 0);
    const int end = buffer.getNumSamples();
@@ -78,8 +82,8 @@ TEST(HitSynthTest, GainScalesVolume)
    loudSynth.prepareToPlay(SAMPLE_RATE);
    quietSynth.prepareToPlay(SAMPLE_RATE);
 
-   auto loud = renderHit(loudSynth, { 60, 1.f, Waveform::Sine }, 2400);
-   auto quiet = renderHit(quietSynth, { 60, 0.25f, Waveform::Sine }, 2400);
+   auto loud = renderHit(loudSynth, { 60, 1.f, Waveform::Synth }, 2400);
+   auto quiet = renderHit(quietSynth, { 60, 0.25f, Waveform::Synth }, 2400);
 
    EXPECT_NEAR(quiet.getMagnitude(0, 0, 2400) / loud.getMagnitude(0, 0, 2400), 0.25f, 0.01f);
 }
@@ -92,7 +96,7 @@ TEST(HitSynthTest, ManyHitsStealVoicesInsteadOfOverflowing)
    juce::AudioBuffer<float> buffer(2, 64);
    for (int i = 0; i < 200; i++)
    {
-      synth.trigger({ 40 + i % 40, 1.f, Waveform::Pulse });
+      synth.trigger({ 40 + i % 40, 1.f, Waveform::Synth });
       buffer.clear();
       synth.render(buffer, 0, 64);
    }
@@ -183,13 +187,12 @@ TEST(EditorHitTest, BallsHittingTheBorderMakeSoundWithNoSites)
    ASSERT_TRUE(e.getEdges().empty());
    e.dropBall({ 200.f, 30.f });
 
-   // 2 seconds is plenty to fall to the floor of any window size
+   // the audio blocks move the ball now, 120 of them is plenty to reach the floor
    float loudest = 0.f;
    juce::AudioBuffer<float> buffer(2, 512);
    juce::MidiBuffer midi;
    for (int frame = 0; frame < 120; frame++)
    {
-      e.updateBalls(1.f / 60.f);
       buffer.clear();
       processor.processBlock(buffer, midi);
       loudest = juce::jmax(loudest, buffer.getMagnitude(0, 512));
@@ -230,9 +233,11 @@ TEST(EditorHitTest, BallsHittingEdgesMakeSoundThroughTheProcessor)
    // plus the inner voronoi edges
    EXPECT_GT(e.getEdges().size(), 5u);
 
-   for (auto waveform : { Waveform::Sine, Waveform::Saw, Waveform::Triangle, Waveform::Pulse })
+   e.setSound(Waveform::Synth);
+   auto *position = processor.apvts.getParameter(Params::WT_POSITION);
+   for (float wtPosition : { 0.f, 1.f / 3.f, 2.f / 3.f, 1.f })
    {
-      e.setSound(waveform);
+      position->setValueNotifyingHost(wtPosition);
       e.dropBall({ 200.f, 30.f });
 
       float loudest = 0.f;
@@ -240,13 +245,12 @@ TEST(EditorHitTest, BallsHittingEdgesMakeSoundThroughTheProcessor)
       juce::MidiBuffer midi;
       for (int frame = 0; frame < 120; frame++)
       {
-         e.updateBalls(1.f / 60.f);
-         buffer.clear();
+            buffer.clear();
          processor.processBlock(buffer, midi);
          loudest = juce::jmax(loudest, buffer.getMagnitude(0, 512));
       }
 
-      EXPECT_GT(loudest, 0.01f) << "waveform " << static_cast<int>(waveform);
+      EXPECT_GT(loudest, 0.01f) << "position " << wtPosition;
    }
 }
 
