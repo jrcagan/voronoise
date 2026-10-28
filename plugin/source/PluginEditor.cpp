@@ -1,4 +1,5 @@
 #include "Voronoise/PluginEditor.h"
+#include "Voronoise/ui/Theme.h"
 
 //==============================================================================
 VoronoiseAudioProcessorEditor::VoronoiseAudioProcessorEditor(VoronoiseAudioProcessor &p)
@@ -23,7 +24,7 @@ VoronoiseAudioProcessorEditor::~VoronoiseAudioProcessorEditor()
 
 void VoronoiseAudioProcessorEditor::paint(juce::Graphics &g)
 {
-    g.fillAll(juce::Colours::black);
+    g.fillAll(Theme::panel);
 }
 
 void VoronoiseAudioProcessorEditor::resized()

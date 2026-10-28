@@ -18,8 +18,8 @@ namespace UI
        const auto bounds = getLocalBounds().toFloat();
        const auto geometry = processor.getWorld().getGeometry();
 
-       // dark glass with a glow in the middle
-       g.setGradientFill(juce::ColourGradient(Theme::screen.brighter(0.25f), bounds.getCentreX(), bounds.getCentreY(),
+       // dark glass with a faint blue glow in the middle
+       g.setGradientFill(juce::ColourGradient(Theme::screen.interpolatedWith(Theme::accent, 0.08f), bounds.getCentreX(), bounds.getCentreY(),
                                               Theme::screen.darker(0.6f), bounds.getX(), bounds.getY(), true));
        g.fillRect(bounds);
 
@@ -33,7 +33,7 @@ namespace UI
        {
            if (geometry->lines != Params::Lines::VoronoiOnly)
            {
-               g.setColour(juce::Colours::grey.withAlpha(0.8f));
+               g.setColour(Theme::labelDim.withAlpha(0.8f));
                for (const auto &t : geometry->triangles)
                {
                    g.drawLine(static_cast<float>(t.a.getX()), static_cast<float>(t.a.getY()),
@@ -69,7 +69,7 @@ namespace UI
            }
        }
 
-       g.setColour(juce::Colours::white);
+       g.setColour(Theme::highlight);
        for (const auto &point : geometry->sites)
            g.drawEllipse(static_cast<float>(point.getX()) - 2.5f, static_cast<float>(point.getY()) - 2.5f, 5.f, 5.f, 1.5f);
 

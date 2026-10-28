@@ -60,10 +60,7 @@ namespace UI
                  getLocalBounds().removeFromTop(20).withTrimmedRight(76), juce::Justification::centredLeft);
 
       const auto area = getWaveArea();
-      g.setColour(juce::Colour(0xff0b0d10));
-      g.fillRoundedRectangle(area, 4.f);
-      g.setColour(juce::Colours::black);
-      g.drawRoundedRectangle(area.reduced(0.5f), 4.f, 1.f);
+      Theme::drawWell(g, area, 4.f);
 
       if (sample == nullptr || sample->peaks.empty())
          return;
@@ -102,13 +99,13 @@ namespace UI
       for (size_t i = 0; i + 1 < boundaries.size(); i++)
       {
          const float x = toX(boundaries[i]);
-         g.setColour(juce::Colours::orange.withAlpha(0.8f));
+         g.setColour(Theme::accent.withAlpha(0.8f));
          g.drawVerticalLine(static_cast<int>(x), area.getY(), area.getBottom());
          g.drawText(juce::String(i + 1), juce::Rectangle<float>(x + 2.f, area.getY() + 1.f, 20.f, 12.f), juce::Justification::topLeft);
       }
 
       // start/end handles
-      g.setColour(juce::Colours::aqua);
+      g.setColour(Theme::highlight);
       g.fillRect(regionStart - 1.f, area.getY(), 3.f, area.getHeight());
       g.fillRect(regionEnd - 2.f, area.getY(), 3.f, area.getHeight());
    }

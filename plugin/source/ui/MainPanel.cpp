@@ -66,21 +66,14 @@ namespace UI
    {
       const auto bounds = getLocalBounds().toFloat();
 
-      // plastic housing
-      g.setColour(juce::Colours::black.withAlpha(0.5f));
-      g.fillRoundedRectangle(bounds.translated(0.f, 3.f), 12.f);
-      g.setGradientFill(juce::ColourGradient(juce::Colour(0xff55565c), bounds.getX(), bounds.getY(),
-                                             juce::Colour(0xff2b2c31), bounds.getX(), bounds.getBottom(), false));
-      g.fillRoundedRectangle(bounds, 12.f);
-      g.setColour(juce::Colours::white.withAlpha(0.12f));
-      g.drawRoundedRectangle(bounds.reduced(1.f), 12.f, 1.f);
+      // housing, the same flat box as the sections
+      Theme::drawSection(g, bounds, {});
 
-      // recessed bezel around the tube
+      // bezel around the screen
       const auto glass = getGlassArea().toFloat();
-      g.setColour(juce::Colour(0xff17181b));
-      g.fillRoundedRectangle(glass.expanded(5.f), 10.f);
-      g.setColour(juce::Colours::black);
-      g.fillRoundedRectangle(glass, 8.f);
+      Theme::drawWell(g, glass.expanded(4.f), 6.f);
+      g.setColour(Theme::screen);
+      g.fillRoundedRectangle(glass, 4.f);
 
       // name badge and power light in the strip under the screen
       auto strip = getLocalBounds().reduced(16, 10).removeFromBottom(32).toFloat();
@@ -92,10 +85,10 @@ namespace UI
       g.drawText("GEOMETRY COMPUTER", strip.removeFromLeft(100.f), juce::Justification::centredLeft);
 
       const auto led = juce::Rectangle<float>(8.f, 8.f).withCentre({ bounds.getRight() - 28.f, strip.getCentreY() });
-      g.setColour(juce::Colour(0xff3dff7a).withAlpha(0.3f));
-      g.fillEllipse(led.expanded(4.f));
-      g.setColour(juce::Colour(0xff3dff7a));
-      g.fillEllipse(led);
+      g.setColour(Theme::accent.withAlpha(0.25f));
+      g.fillEllipse(led.expanded(3.f));
+      g.setColour(Theme::accent);
+      g.fillEllipse(led.reduced(1.f));
       g.setFont(Theme::labelFont(8.f));
       g.setColour(Theme::labelDim);
       g.drawText("PWR", led.translated(-30.f, 0.f).withWidth(24.f).expanded(0.f, 4.f), juce::Justification::centredRight);
@@ -123,13 +116,13 @@ namespace UI
       g.setColour(Theme::phosphor);
       g.drawText(text, status.reduced(8.f, 0.f), juce::Justification::centredLeft);
 
-      // glass: curved reflection and dark rounded corners
-      g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.07f), glass.getX(), glass.getY(),
-                                             juce::Colours::transparentWhite, glass.getX() + glass.getWidth() * 0.45f,
+      // glass: a faint reflection and rounded corners
+      g.setGradientFill(juce::ColourGradient(Theme::highlight.withAlpha(0.04f), glass.getX(), glass.getY(),
+                                             Theme::highlight.withAlpha(0.f), glass.getX() + glass.getWidth() * 0.45f,
                                              glass.getY() + glass.getHeight() * 0.6f, false));
-      g.fillRoundedRectangle(glass, 8.f);
-      g.setColour(juce::Colours::black);
-      g.drawRoundedRectangle(glass.reduced(1.f), 8.f, 4.f);
+      g.fillRoundedRectangle(glass, 4.f);
+      g.setColour(Theme::well);
+      g.drawRoundedRectangle(glass.reduced(1.f), 4.f, 2.f);
    }
 
    //==============================================================================
@@ -391,10 +384,7 @@ namespace UI
    void EnvelopeDisplay::paint(juce::Graphics& g)
    {
       const auto bounds = getLocalBounds().toFloat();
-      g.setColour(juce::Colour(0xff0b0d10));
-      g.fillRoundedRectangle(bounds, 5.f);
-      g.setColour(juce::Colours::black);
-      g.drawRoundedRectangle(bounds.reduced(0.5f), 5.f, 1.f);
+      Theme::drawWell(g, bounds);
 
       const auto area = getGraphArea();
       const auto shape = getShape();
@@ -415,7 +405,7 @@ namespace UI
       g.strokePath(line, juce::PathStrokeType(2.f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
       // note off marker
-      g.setColour(juce::Colours::white.withAlpha(0.2f));
+      g.setColour(Theme::labelDim.withAlpha(0.5f));
       g.drawVerticalLine(static_cast<int>(shape.noteOff.x), area.getY(), area.getBottom());
 
       // grabbable points, bigger when hovered or held
@@ -424,9 +414,9 @@ namespace UI
          const bool hot = handle == hovered || handle == dragging;
          const float size = hot ? 9.f : 6.f;
          const auto point = juce::Rectangle<float>(size, size).withCentre(getHandlePosition(handle));
-         g.setColour(hot ? Theme::accent : juce::Colours::white);
+         g.setColour(hot ? Theme::highlight : Theme::accent);
          g.fillEllipse(point);
-         g.setColour(juce::Colours::black.withAlpha(0.6f));
+         g.setColour(Theme::well);
          g.drawEllipse(point, 1.f);
       }
    }
@@ -498,13 +488,15 @@ namespace UI
       keyboard.setAvailableRange(24, 96);
       keyboard.setScrollButtonsVisible(false);
       keyboard.setOctaveForMiddleC(4);
-      keyboard.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, juce::Colour(0xffe9e6df));
-      keyboard.setColour(juce::MidiKeyboardComponent::blackNoteColourId, juce::Colour(0xff17181b));
-      keyboard.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, juce::Colour(0xff8f8c86));
-      keyboard.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, Theme::accent.withAlpha(0.25f));
-      keyboard.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::accent.withAlpha(0.85f));
-      keyboard.setColour(juce::MidiKeyboardComponent::shadowColourId, juce::Colours::black.withAlpha(0.45f));
-      keyboard.setColour(juce::MidiKeyboardComponent::textLabelColourId, juce::Colour(0xff6c6a66));
+      keyboard.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::control);
+      keyboard.setColour(juce::MidiKeyboardComponent::blackNoteColourId, Theme::well);
+      keyboard.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, Theme::controlEdge);
+      keyboard.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, Theme::accent.withAlpha(0.2f));
+      keyboard.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::accent.withAlpha(0.8f));
+      keyboard.setColour(juce::MidiKeyboardComponent::shadowColourId, juce::Colours::black.withAlpha(0.3f));
+      keyboard.setColour(juce::MidiKeyboardComponent::upDownButtonBackgroundColourId, Theme::control);
+      keyboard.setColour(juce::MidiKeyboardComponent::upDownButtonArrowColourId, Theme::labelDim);
+      keyboard.setColour(juce::MidiKeyboardComponent::textLabelColourId, Theme::labelDim);
       addAndMakeVisible(keyboard);
 
       buildSections();
@@ -676,34 +668,35 @@ namespace UI
       repaint(displayArea);
    }
 
+   void Keyboard::drawBlackNote(int, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver, juce::Colour noteFillColour)
+   {
+      auto colour = noteFillColour;
+      if (isDown)
+         colour = colour.overlaidWith(findColour(keyDownOverlayColourId));
+      else if (isOver)
+         colour = colour.overlaidWith(findColour(mouseOverKeyOverlayColourId));
+
+      g.setColour(colour);
+      g.fillRect(area);
+
+      // a thin lit edge along the front of the key
+      g.setColour(isDown ? Theme::highlight : Theme::controlEdge);
+      g.fillRect(area.reduced(2.f, 0.f).removeFromBottom(2.f).translated(0.f, -2.f));
+   }
+
    void MainPanel::paint(juce::Graphics& g)
    {
       const auto bounds = getLocalBounds().toFloat();
-      constexpr float CHEEK = 28.f;
-
-      Theme::drawPanel(g, bounds.reduced(CHEEK, 0.f));
+      Theme::drawPanel(g, bounds);
       Theme::drawSection(g, keysArea.toFloat(), "Keys");
-      Theme::drawWood(g, bounds.withWidth(CHEEK), 11);
-      Theme::drawWood(g, bounds.withLeft(bounds.getRight() - CHEEK), 23);
-
-      // screws in the corners of the metal
-      for (auto [x, y] : { std::pair{ CHEEK + 10.f, 10.f }, { bounds.getRight() - CHEEK - 10.f, 10.f },
-                           { CHEEK + 10.f, bounds.getBottom() - 10.f }, { bounds.getRight() - CHEEK - 10.f, bounds.getBottom() - 10.f } })
-      {
-         const auto screw = juce::Rectangle<float>(9.f, 9.f).withCentre({ x, y });
-         g.setGradientFill(juce::ColourGradient(juce::Colour(0xffb5b7bd), screw.getX(), screw.getY(), juce::Colour(0xff4a4b50), screw.getRight(), screw.getBottom(), false));
-         g.fillEllipse(screw);
-         g.setColour(juce::Colours::black.withAlpha(0.6f));
-         g.drawLine(screw.getX() + 2.f, screw.getCentreY(), screw.getRight() - 2.f, screw.getCentreY(), 1.2f);
-      }
 
       // logo
       auto header = headerArea.toFloat();
       g.setFont(Theme::titleFont(30.f).withExtraKerningFactor(0.3f));
-      g.setColour(juce::Colours::white);
+      g.setColour(Theme::highlight);
       g.drawText("VORONOISE", header.withTrimmedLeft(14.f).withHeight(44.f).translated(0.f, 6.f), juce::Justification::centredLeft);
       g.setColour(Theme::accent);
-      g.fillRect(header.getX() + 16.f, header.getY() + 48.f, 54.f, 3.f);
+      g.fillRect(header.getX() + 16.f, header.getY() + 48.f, 54.f, 2.f);
       g.setFont(Theme::labelFont(10.f).withExtraKerningFactor(0.2f));
       g.setColour(Theme::labelDim);
       g.drawText("GEOMETRIC PERCUSSION SYNTHESIZER", header.withTrimmedLeft(78.f).withTop(header.getY() + 42.f).withHeight(14.f),
@@ -719,11 +712,8 @@ namespace UI
 
       // lcd
       auto lcd = displayArea.toFloat();
-      g.setColour(juce::Colour(0xff17181b));
-      g.fillRoundedRectangle(lcd.expanded(4.f), 6.f);
-      g.setColour(juce::Colour(0xff140f08));
-      g.fillRoundedRectangle(lcd, 3.f);
-      g.setColour(Theme::lcdText.withAlpha(0.06f));
+      Theme::drawWell(g, lcd.expanded(4.f), 5.f);
+      g.setColour(Theme::lcdText.withAlpha(0.03f));
       for (float y = lcd.getY(); y < lcd.getBottom(); y += 2.f)
          g.drawHorizontalLine(static_cast<int>(y), lcd.getX(), lcd.getRight());
 

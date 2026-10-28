@@ -293,10 +293,7 @@ namespace UI
    void WavetableView::paint(juce::Graphics& g)
    {
       const auto area = getWaveArea();
-      g.setColour(juce::Colour(0xff0b0d10));
-      g.fillRoundedRectangle(area, 5.f);
-      g.setColour(juce::Colours::black);
-      g.drawRoundedRectangle(area.reduced(0.5f), 5.f, 1.f);
+      Theme::drawWell(g, area, 5.f);
 
       const auto table = processor.getWavetable();
       const int frames = table->getNumFrames();

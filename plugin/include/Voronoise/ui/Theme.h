@@ -5,20 +5,26 @@
 // colours and drawing shared by the whole panel
 namespace Theme
 {
-   inline const juce::Colour panel        { 0xff2a2b30 };
-   inline const juce::Colour panelLight   { 0xff3a3b41 };
-   inline const juce::Colour section      { 0xff1f2024 };
-   inline const juce::Colour sectionEdge  { 0xff45464d };
-   inline const juce::Colour label        { 0xffc3c6ce };
-   inline const juce::Colour labelDim     { 0xff7e818b };
-   inline const juce::Colour accent       { 0xffff8a2b };
-   inline const juce::Colour screen       { 0xff081115 };
-   inline const juce::Colour phosphor     { 0xff6ff7d8 };
-   inline const juce::Colour lcdText      { 0xffffb347 };
+   // one palette: deep blue-black surfaces, blue-grey text and a single blue accent with its shades
+   inline const juce::Colour panel        { 0xff070a12 };
+   inline const juce::Colour panelLight   { 0xff0b101c };
+   inline const juce::Colour section      { 0xff0a0f1b };
+   inline const juce::Colour sectionEdge  { 0xff19223a };
+   inline const juce::Colour well         { 0xff04060c }; // recessed displays
+   inline const juce::Colour control      { 0xff111829 }; // knob bodies, buttons
+   inline const juce::Colour controlEdge  { 0xff243052 };
+   inline const juce::Colour label        { 0xffc2cde6 };
+   inline const juce::Colour labelDim     { 0xff56648a };
+   inline const juce::Colour accent       { 0xff4d8dff };
+   inline const juce::Colour highlight    { 0xffb3ccff }; // the accent at its lightest
+   inline const juce::Colour screen       { 0xff03060d };
+   inline const juce::Colour phosphor     { 0xff6ea6ff };
+   inline const juce::Colour lcdText      { 0xff8cb6ff };
 
+   // three shades of the accent: blue, ice and violet-blue
    inline juce::Colour lfoColour(int lfo)
    {
-      constexpr juce::uint32 COLOURS[] = { 0xff35d0ff, 0xffff4fa3, 0xffb6f23e };
+      constexpr juce::uint32 COLOURS[] = { 0xff4d8dff, 0xff8fd3ff, 0xff9b8cff };
       return juce::Colour(COLOURS[juce::jlimit(0, 2, lfo)]);
    }
 
@@ -26,14 +32,14 @@ namespace Theme
    juce::Font titleFont(float height = 12.f);
    juce::Font monoFont(float height = 13.f);
 
-   // dark recessed box with a title engraved in the top left, like the sections on a hardware synth
+   // flat box with a hairline edge and its title in the top left
    void drawSection(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& title);
 
-   // wooden end cheek
-   void drawWood(juce::Graphics& g, juce::Rectangle<float> area, int seed);
-
-   // brushed metal-ish panel background
+   // the panel background, a faint vertical fade
    void drawPanel(juce::Graphics& g, juce::Rectangle<float> area);
+
+   // recessed display window: well colour with a hairline edge
+   void drawWell(juce::Graphics& g, juce::Rectangle<float> area, float corner = 4.f);
 
    class LookAndFeel : public juce::LookAndFeel_V4
    {
@@ -55,5 +61,6 @@ namespace Theme
       juce::Font getPopupMenuFont() override;
       void drawScrollbar(juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical,
                          int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown) override;
+      void drawCornerResizer(juce::Graphics&, int w, int h, bool isMouseOver, bool isMouseDragging) override;
    };
 }

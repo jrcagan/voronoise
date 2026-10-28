@@ -333,10 +333,12 @@ void BallWorld::setupBall(Ball& ball, int noteNumber, float sizeScale)
 
    ball.timeLeftAlive = processor.getParamValue(Params::LIFETIME);
 
-   // each pitch class gets its own colour
+   // each pitch class gets its own shade of the ui's blue, from ice to violet-blue
    ball.noteNumber = noteNumber;
    ball.frequency = AudioUtils::getFreq(noteNumber);
-   ball.color = juce::Colour::fromHSV(static_cast<float>(noteNumber % 12) / 12.f, 0.8f, 1.f, 1.f);
+   const int pitchClass = noteNumber % 12;
+   ball.color = juce::Colour::fromHSV(0.55f + 0.14f * static_cast<float>(pitchClass) / 11.f,
+                                      0.35f + 0.45f * static_cast<float>((pitchClass * 5) % 12) / 11.f, 1.f, 1.f);
 
    // modulated, so an lfo on the ball sound can pick a different one for each new ball
    ball.sound = static_cast<Waveform>(juce::jlimit(0, static_cast<int>(Waveform::END) - 1,

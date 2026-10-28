@@ -117,10 +117,7 @@ namespace UI
       const auto colour = Theme::lfoColour(lfo);
 
       // screen
-      g.setColour(juce::Colour(0xff0b0d10));
-      g.fillRoundedRectangle(bounds, 5.f);
-      g.setColour(juce::Colours::black);
-      g.drawRoundedRectangle(bounds.reduced(0.5f), 5.f, 1.f);
+      Theme::drawWell(g, bounds, 5.f);
 
       // grid
       const int columns = gridDivisions > 0 ? gridDivisions : 8;
@@ -177,7 +174,7 @@ namespace UI
       {
          const auto p = toScreen(points[i].x, points[i].y);
          const bool hot = static_cast<int>(i) == hoverPoint || (dragging == Dragging::Point && static_cast<int>(i) == dragIndex);
-         g.setColour(hot ? juce::Colours::white : colour.brighter(0.4f));
+         g.setColour(hot ? juce::Colours::white : colour.interpolatedWith(Theme::highlight, 0.5f));
          g.fillEllipse(juce::Rectangle<float>(POINT_RADIUS * 2.f, POINT_RADIUS * 2.f).withCentre(p));
          g.setColour(juce::Colours::black.withAlpha(0.7f));
          g.drawEllipse(juce::Rectangle<float>(POINT_RADIUS * 2.f, POINT_RADIUS * 2.f).withCentre(p), 1.f);
@@ -311,7 +308,7 @@ namespace UI
       const auto bounds = getLocalBounds().toFloat().reduced(1.f);
       const auto colour = Theme::lfoColour(lfo);
 
-      g.setColour(selected ? juce::Colour(0xff0b0d10) : juce::Colour(0xff2c2d32));
+      g.setColour(selected ? Theme::well : Theme::control);
       g.fillRoundedRectangle(bounds, 4.f);
       g.setColour(selected ? colour : Theme::sectionEdge);
       g.drawRoundedRectangle(bounds, 4.f, 1.f);
@@ -471,10 +468,7 @@ namespace UI
 
    void DestinationList::paint(juce::Graphics& g)
    {
-      g.setColour(juce::Colour(0xff0b0d10));
-      g.fillRoundedRectangle(getLocalBounds().toFloat(), 5.f);
-      g.setColour(juce::Colours::black);
-      g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 5.f, 1.f);
+      Theme::drawWell(g, getLocalBounds().toFloat(), 5.f);
 
       if (rows.isEmpty())
       {

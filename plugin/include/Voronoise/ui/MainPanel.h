@@ -149,6 +149,17 @@ namespace UI
       std::array<bool, 12> inScale {};
    };
 
+   // the on-screen keys. juce lights the top of black keys with brighter(), which turns a dark blue grey,
+   // so they're drawn here in the palette instead
+   class Keyboard : public juce::MidiKeyboardComponent
+   {
+   public:
+      using MidiKeyboardComponent::MidiKeyboardComponent;
+
+      void drawBlackNote(int midiNoteNumber, juce::Graphics& g, juce::Rectangle<float> area,
+                         bool isDown, bool isOver, juce::Colour noteFillColour) override;
+   };
+
    class MainPanel : public juce::Component, public ParamDisplay, private juce::Timer
    {
    public:
@@ -186,7 +197,7 @@ namespace UI
       VoronoiseAudioProcessor& processor;
       Computer computer;
       LfoPanel lfoPanel;
-      juce::MidiKeyboardComponent keyboard;
+      Keyboard keyboard;
 
       std::unique_ptr<Section> geometry, midi, hitRandom;
       std::unique_ptr<Section> synthPage, ballsPage, notesPage, samplePage;
