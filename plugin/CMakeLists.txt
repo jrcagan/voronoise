@@ -18,20 +18,50 @@ juce_generate_juce_header(${PROJECT_NAME})
 set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(SOURCE_FILES source/PluginEditor.cpp 
                  source/PluginProcessor.cpp 
-                 source/synth/WavetableOscillator.cpp 
                  source/synth/WavetableSynth.cpp
+                 source/synth/HitSynth.cpp
                  source/geometry/Utils.cpp 
                  source/geometry/Delaunay.cpp 
-                 source/geometry/Voronoi.cpp)
+                 source/geometry/Voronoi.cpp
+                 source/geometry/Metrics.cpp
+                 source/primitives/Ball.cpp
+                 source/synth/Scale.cpp
+                 source/synth/Sample.cpp
+                 source/synth/Lfo.cpp
+                 source/synth/Wavetable.cpp
+                 source/world/BallWorld.cpp
+                 source/ui/Theme.cpp
+                 source/ui/ParamControl.cpp
+                 source/ui/LfoPanel.cpp
+                 source/ui/SampleView.cpp
+                 source/ui/Canvas.cpp
+                 source/ui/MainPanel.cpp
+                 source/ui/WavetableView.cpp)
 
 set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h 
                  ${INCLUDE_DIR}/Voronoise/PluginProcessor.h 
-                 ${INCLUDE_DIR}/synth/WavetableOscillator.h 
                  ${INCLUDE_DIR}/synth/WavetableSynth.h
+                 ${INCLUDE_DIR}/synth/HitSynth.h
+                 ${INCLUDE_DIR}/synth/Waveform.h
                  ${INCLUDE_DIR}/DSP/Fifo.h
                  ${INCLUDE_DIR}/geometry/Utils.h
                  ${INCLUDE_DIR}/geometry/Delaunay.h
-                 ${INCLUDE_DIR}/geometry/Voronoi.h)
+                 ${INCLUDE_DIR}/geometry/Voronoi.h
+                 ${INCLUDE_DIR}/geometry/Metrics.h
+                 ${INCLUDE_DIR}/primitives/Ball.h
+                 ${INCLUDE_DIR}/synth/Scale.h
+                 ${INCLUDE_DIR}/synth/Sample.h
+                 ${INCLUDE_DIR}/synth/Lfo.h
+                 ${INCLUDE_DIR}/synth/Wavetable.h
+                 ${INCLUDE_DIR}/world/BallWorld.h
+                 ${INCLUDE_DIR}/Voronoise/Params.h
+                 ${INCLUDE_DIR}/Voronoise/ui/Theme.h
+                 ${INCLUDE_DIR}/Voronoise/ui/ParamControl.h
+                 ${INCLUDE_DIR}/Voronoise/ui/LfoPanel.h
+                 ${INCLUDE_DIR}/Voronoise/ui/SampleView.h
+                 ${INCLUDE_DIR}/Voronoise/ui/Canvas.h
+                 ${INCLUDE_DIR}/Voronoise/ui/MainPanel.h
+                 ${INCLUDE_DIR}/Voronoise/ui/WavetableView.h)
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 

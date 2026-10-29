@@ -7,6 +7,14 @@ enable_testing()
 add_executable(${PROJECT_NAME} 
    VoronoiTests.cpp
    ProcessorTests.cpp
+   BallTests.cpp
+   HitSynthTests.cpp
+   SettingsTests.cpp
+   LfoTests.cpp
+   WavetableTests.cpp
+   TimingTests.cpp
+   MetricsTests.cpp
+   DragTests.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
