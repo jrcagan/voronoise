@@ -23,6 +23,7 @@ set(SOURCE_FILES source/PluginEditor.cpp
                  source/geometry/Utils.cpp 
                  source/geometry/Delaunay.cpp 
                  source/geometry/Voronoi.cpp
+                 source/geometry/Metrics.cpp
                  source/primitives/Ball.cpp
                  source/synth/Scale.cpp
                  source/synth/Sample.cpp
@@ -46,6 +47,7 @@ set(HEADER_FILES ${INCLUDE_DIR}/Voronoise/PluginEditor.h
                  ${INCLUDE_DIR}/geometry/Utils.h
                  ${INCLUDE_DIR}/geometry/Delaunay.h
                  ${INCLUDE_DIR}/geometry/Voronoi.h
+                 ${INCLUDE_DIR}/geometry/Metrics.h
                  ${INCLUDE_DIR}/primitives/Ball.h
                  ${INCLUDE_DIR}/synth/Scale.h
                  ${INCLUDE_DIR}/synth/Sample.h

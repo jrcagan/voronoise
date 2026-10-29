@@ -7,6 +7,7 @@ namespace Params
 {
    // view
    inline constexpr auto LINES = "lines";
+   inline constexpr auto METRIC = "metric"; // how distance is measured for the voronoi/delaunay
 
    // balls
    inline constexpr auto GRAVITY = "gravity";

@@ -14,58 +14,164 @@ BallWorld::BallWorld(VoronoiseAudioProcessor& p) : processor(p)
    geometryPool.add(geometry);
 }
 
-//==============================================================================
-void BallWorld::rebuildGeometry()
+BallWorld::~BallWorld()
 {
-   Geometry::Ptr built = new Geometry();
-   built->lines = static_cast<Params::Lines>(static_cast<int>(processor.getParamValue(Params::LINES)));
+   builder.signalThreadShouldExit();
+   jobReady.signal();
+   builder.stopThread(4000);
+}
+
+//==============================================================================
+BallWorld::BuildInputs BallWorld::getBuildInputs() const
+{
+   BuildInputs inputs;
+   inputs.lines = static_cast<Params::Lines>(static_cast<int>(processor.getParamValue(Params::LINES)));
+   inputs.metric = static_cast<Metrics::Type>(juce::jlimit(0, static_cast<int>(Metrics::Type::END) - 1,
+                                                           static_cast<int>(processor.getParamValue(Params::METRIC))));
 
    const auto sitesTree = processor.getValueTree().getChildWithName("Sites");
    for (int i = 0; i < sitesTree.getNumChildren(); i++)
    {
       const auto site = sitesTree.getChild(i);
-      built->sites.push_back(GeoUtils::Point(static_cast<double>(site["x"]), static_cast<double>(site["y"])));
+      inputs.sites.push_back(GeoUtils::Point(static_cast<double>(site["x"]), static_cast<double>(site["y"])));
+   }
+   return inputs;
+}
+
+void BallWorld::rebuildGeometry()
+{
+   const auto number = ++requestNumber;
+   const auto built = build(getBuildInputs());
+
+   // anything still building in the background is older than this
+   installedNumber = number;
+   install(built);
+}
+
+void BallWorld::requestRebuild()
+{
+   {
+      const std::lock_guard lock(jobLock);
+      job = getBuildInputs();
+      jobNumber = ++requestNumber;
    }
 
-   if (built->sites.size() > 2)
+   if (! builder.isThreadRunning())
+      builder.startThread(juce::Thread::Priority::low);
+   jobReady.signal();
+}
+
+bool BallWorld::isRebuilding() const
+{
+   return installedNumber < requestNumber;
+}
+
+void BallWorld::Builder::run()
+{
+   while (! threadShouldExit())
    {
-      built->triangles = Delaunay::triangulate(built->sites);
-
-      const GeoUtils::BBox bbox { 0.0, 0.0, static_cast<double>(WIDTH), static_cast<double>(HEIGHT) };
-      built->cells = Voronoi::getCells(built->triangles, bbox);
-
-      for (const auto& kv : built->cells)
-         built->cellCentres.push_back(getCentroid(kv.second.vertices));
-
-      // balls bounce off whichever lines are switched on, the set drops duplicates
-      std::set<GeoUtils::Edge, GeoUtils::EdgeComparator> uniqueEdges;
-      if (built->lines != Params::Lines::DelaunayOnly)
-         for (const auto& edge : Voronoi::getEdges(built->triangles, bbox))
-            uniqueEdges.insert(edge);
-      if (built->lines != Params::Lines::VoronoiOnly)
+      std::optional<BuildInputs> inputs;
+      juce::uint64 number = 0;
       {
-         for (const auto& t : built->triangles)
-         {
-            uniqueEdges.insert({ t.a, t.b });
-            uniqueEdges.insert({ t.b, t.c });
-            uniqueEdges.insert({ t.c, t.a });
-         }
+         const std::lock_guard lock(world.jobLock);
+         std::swap(inputs, world.job);
+         number = world.jobNumber;
       }
 
-      // voronoi cells get clipped to the screen, those border pieces are just the walls,
-      // which the ball already bounces off (and plays on) by itself, so leave them out
-      auto onBorder = [&bbox](const GeoUtils::Edge& e)
+      if (! inputs.has_value())
       {
-         auto same = [](double a, double b) { return std::abs(a - b) < 1e-6; };
-         return (same(e.u.x, bbox.minX) && same(e.v.x, bbox.minX)) || (same(e.u.x, bbox.maxX) && same(e.v.x, bbox.maxX))
-             || (same(e.u.y, bbox.minY) && same(e.v.y, bbox.minY)) || (same(e.u.y, bbox.maxY) && same(e.v.y, bbox.maxY));
-      };
+         world.jobReady.wait(-1);
+         continue;
+      }
 
-      for (const auto& edge : uniqueEdges)
-         if (! onBorder(edge))
-            built->edges.push_back(edge);
+      // done with it before the next one's even looked at, so a drag only ever has one build in flight
+      const auto built = world.build(*inputs);
+      const std::lock_guard lock(world.jobLock);
+      world.finished = built;
+      world.finishedNumber = number;
+   }
+}
+
+BallWorld::Geometry::Ptr BallWorld::build(const BuildInputs& inputs)
+{
+   const std::lock_guard lock(buildLock);
+
+   Geometry::Ptr built = new Geometry();
+   built->lines = inputs.lines;
+   built->metric = inputs.metric;
+   built->sites = inputs.sites;
+
+   const GeoUtils::BBox bbox { 0.0, 0.0, static_cast<double>(WIDTH), static_cast<double>(HEIGHT) };
+
+   if (built->metric == Metrics::Type::Euclidean)
+   {
+      if (built->sites.size() > 2)
+      {
+         built->triangles = Delaunay::triangulate(built->sites);
+         built->cells = Voronoi::getCells(built->triangles, bbox);
+
+         for (const auto& kv : built->cells)
+            built->cellCentres.push_back(getCentroid(kv.second.vertices));
+
+         for (const auto& edge : Voronoi::getEdges(built->triangles, bbox))
+            built->voronoiLines.push_back({ edge.u, edge.v });
+
+         std::set<GeoUtils::Edge, GeoUtils::EdgeComparator> sides;
+         for (const auto& t : built->triangles)
+         {
+            sides.insert({ t.a, t.b });
+            sides.insert({ t.b, t.c });
+            sides.insert({ t.c, t.a });
+         }
+         built->delaunayLines.assign(sides.begin(), sides.end());
+      }
+   }
+   else if (built->sites.size() > 1)
+   {
+      // manhattan / hilbert, reusing the last diagram if only the lines setting changed
+      if (built->sites != cachedSites || built->metric != cachedMetric)
+      {
+         cachedDiagram = Metrics::build(built->metric, built->sites, static_cast<double>(WIDTH), static_cast<double>(HEIGHT), &bisectorCache);
+         cachedSites = built->sites;
+         cachedMetric = built->metric;
+      }
+
+      built->voronoiLines = cachedDiagram.voronoiLines;
+      built->cellCentres = cachedDiagram.cellCentres;
+
+      std::set<std::pair<int, int>> pairs(cachedDiagram.neighbours.begin(), cachedDiagram.neighbours.end());
+      for (const auto& [i, j] : pairs)
+         built->delaunayLines.push_back({ cachedDiagram.sites[static_cast<size_t>(i)], cachedDiagram.sites[static_cast<size_t>(j)] });
    }
 
+   // balls bounce off whichever lines are switched on, the set drops duplicates
+   std::set<GeoUtils::Edge, GeoUtils::EdgeComparator> uniqueEdges;
+   if (built->lines != Params::Lines::DelaunayOnly)
+      for (const auto& line : built->voronoiLines)
+         for (size_t i = 0; i + 1 < line.size(); i++)
+            uniqueEdges.insert({ line[i], line[i + 1] });
+   if (built->lines != Params::Lines::VoronoiOnly)
+      for (const auto& edge : built->delaunayLines)
+         uniqueEdges.insert(edge);
+
+   // voronoi cells get clipped to the screen, those border pieces are just the walls,
+   // which the ball already bounces off (and plays on) by itself, so leave them out
+   auto onBorder = [&bbox](const GeoUtils::Edge& e)
+   {
+      auto same = [](double a, double b) { return std::abs(a - b) < 1e-6; };
+      return (same(e.u.x, bbox.minX) && same(e.v.x, bbox.minX)) || (same(e.u.x, bbox.maxX) && same(e.v.x, bbox.maxX))
+          || (same(e.u.y, bbox.minY) && same(e.v.y, bbox.minY)) || (same(e.u.y, bbox.maxY) && same(e.v.y, bbox.maxY));
+   };
+
+   for (const auto& edge : uniqueEdges)
+      if (! onBorder(edge) && edge.u.getDistanceSquaredFrom(edge.v) > 1e-12)
+         built->edges.push_back(edge);
+
+   return built;
+}
+
+void BallWorld::install(Geometry::Ptr built)
+{
    // free old ones the audio thread isn't holding anymore
    for (int i = geometryPool.size(); --i >= 0;)
       if (geometryPool.getObjectPointerUnchecked(i)->getReferenceCount() == 1)
@@ -78,8 +184,25 @@ void BallWorld::rebuildGeometry()
 
 void BallWorld::syncGeometry()
 {
+   // a background build that's finished, unless something newer went in already
+   Geometry::Ptr built;
+   {
+      const std::lock_guard lock(jobLock);
+      if (finished != nullptr && finishedNumber > installedNumber)
+      {
+         built = finished;
+         installedNumber = finishedNumber;
+      }
+      finished = nullptr;
+   }
+   if (built != nullptr)
+      install(built);
+
+   // an lfo can move either setting
    const auto lines = static_cast<Params::Lines>(static_cast<int>(processor.getParamValue(Params::LINES)));
-   if (lines != geometry->lines)
+   const auto metric = static_cast<Metrics::Type>(juce::jlimit(0, static_cast<int>(Metrics::Type::END) - 1,
+                                                                static_cast<int>(processor.getParamValue(Params::METRIC))));
+   if (lines != geometry->lines || metric != geometry->metric)
       rebuildGeometry();
 }
 
@@ -157,6 +280,12 @@ void BallWorld::prepare(double newSampleRate)
 void BallWorld::handleNoteOn(int noteNumber, int velocity, int sampleOffset)
 {
    const auto note = static_cast<size_t>(juce::jlimit(0, 127, noteNumber));
+
+   // the same note again before it was let go (overlapping notes, or the screen keys and a controller
+   // both playing it): that lets go of the earlier one, or its ball would hang there forever
+   if (keyPresses[note] != 0)
+      handleNoteOff(noteNumber, sampleOffset);
+
    const auto press = nextKeyPress++;
    if (nextKeyPress == 0)
       nextKeyPress = 1; // 0 means no key
@@ -257,7 +386,8 @@ int BallWorld::process(int numSamples, std::array<HitEvent, MAX_HITS_PER_BLOCK>&
          // the note starts when the ball touched (plus the fixed latency), not when the step noticed
          const double touched = static_cast<double>(clock) + nextStep - contact.secondsAgo * sampleRate;
          pending[static_cast<size_t>(numPending++)] = { static_cast<juce::int64>(std::llround(touched)) + latencySamples,
-                                                        { ball.noteNumber, ball.getHitGain(contact.speed, dynamics), ball.sound, ball.gateSeconds } };
+                                                        { ball.noteNumber, ball.getHitGain(contact.speed, dynamics), ball.sound, ball.gateSeconds },
+                                                        ball.id };
       }
 
       balls.erase(std::remove_if(balls.begin(), balls.end(), [](const Ball& b) { return ! b.isAlive(); }), balls.end());
@@ -273,7 +403,7 @@ int BallWorld::process(int numSamples, std::array<HitEvent, MAX_HITS_PER_BLOCK>&
    {
       const auto& waiting = pending[static_cast<size_t>(i)];
       if (waiting.when < blockEnd && numHits < MAX_HITS_PER_BLOCK)
-         hits[static_cast<size_t>(numHits++)] = { static_cast<int>(juce::jmax<juce::int64>(0, waiting.when - clock)), waiting.hit };
+         hits[static_cast<size_t>(numHits++)] = { static_cast<int>(juce::jmax<juce::int64>(0, waiting.when - clock)), waiting.hit, waiting.ball };
       else
          pending[static_cast<size_t>(kept++)] = waiting;
    }
@@ -313,6 +443,7 @@ void BallWorld::addBall(const Ball& ball)
       balls.erase(balls.begin());
 
    balls.push_back(ball);
+   balls.back().id = nextBallId++;
 }
 
 void BallWorld::clearBalls()

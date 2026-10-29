@@ -1,5 +1,6 @@
 #include "Voronoise/PluginProcessor.h"
 #include "Voronoise/PluginEditor.h"
+#include "geometry/Metrics.h"
 
 //==============================================================================
 VoronoiseAudioProcessor::VoronoiseAudioProcessor()
@@ -201,6 +202,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VoronoiseAudioProcessor::cre
 
     // view
     addChoice(Params::LINES, "Lines", Params::getLinesNames(), 0);
+    addChoice(Params::METRIC, "Metric", Metrics::getNames(), 0);
     addChoice(Params::BALL_SOUND, "Ball sound", getWaveformNames(), 0);
     addFloat(Params::WT_POSITION, "WT position", { 0.f, 1.f, 0.001f }, 0.f);
 
@@ -714,6 +716,13 @@ void VoronoiseAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juc
 {
     if (parent.hasType("Sites"))
         world.rebuildGeometry();
+}
+
+void VoronoiseAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier&)
+{
+    // a site being dragged around, built in the background so the drag stays smooth
+    if (tree.hasType("Site"))
+        world.requestRebuild();
 }
 
 void VoronoiseAudioProcessor::timerCallback()

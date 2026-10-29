@@ -13,6 +13,8 @@ add_executable(${PROJECT_NAME}
    LfoTests.cpp
    WavetableTests.cpp
    TimingTests.cpp
+   MetricsTests.cpp
+   DragTests.cpp
 )
 
 target_include_directories(${PROJECT_NAME}

@@ -445,6 +445,43 @@ TEST(KeyLengthTest, BallWaitsAtItsCentreUntilTheKeyIsLetGo)
    EXPECT_GT(std::abs(balls.front().getY() - 40.f), 50.f); // it's been bouncing
 }
 
+TEST(KeyLengthTest, PressingTheSameNoteAgainLetsGoOfTheFirstBall)
+{
+   Fixture f;
+   setParam(f.processor, Params::MIDI_DROP_CHANCE, 1.f);
+   f.processor.getValueTree().getChildWithName("Sites").appendChild(
+       juce::ValueTree("Site").setProperty("x", static_cast<double>(DROP_X), nullptr).setProperty("y", 40.0, nullptr), nullptr);
+   const auto &balls = f.processor.getWorld().getBalls();
+   juce::AudioBuffer<float> buffer(2, 480); // 10ms blocks
+   auto run = [&](int blocks) {
+      for (int i = 0; i < blocks; i++)
+      {
+         juce::MidiBuffer none;
+         f.processor.processBlock(buffer, none);
+      }
+   };
+
+   // middle c down, down again 0.1s later (no note off in between), then one note off at 0.3s
+   juce::MidiBuffer first, second, up;
+   first.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+   f.processor.processBlock(buffer, first);
+   run(9);
+   second.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+   f.processor.processBlock(buffer, second);
+   ASSERT_EQ(balls.size(), 2u);
+
+   // the second press let go of the first: it dropped, held for the 0.1s until the press again
+   EXPECT_FALSE(balls[0].isWaiting());
+   EXPECT_NEAR(balls[0].gateSeconds, 0.1, 0.001);
+   EXPECT_TRUE(balls[1].isWaiting());
+
+   run(19);
+   up.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+   f.processor.processBlock(buffer, up);
+   EXPECT_FALSE(balls[1].isWaiting());
+   EXPECT_NEAR(balls[1].gateSeconds, 0.2, 0.001);
+}
+
 TEST(KeyLengthTest, ClickedBallsStillUseTheHitLengthKnob)
 {
    Fixture f;

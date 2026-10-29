@@ -20,6 +20,8 @@ namespace Theme
    inline const juce::Colour screen       { 0xff03060d };
    inline const juce::Colour phosphor     { 0xff6ea6ff };
    inline const juce::Colour lcdText      { 0xff8cb6ff };
+   inline const juce::Colour keyWhite     { 0xff6f93d6 }; // the on-screen keys, a lighter blue so they read as keys
+   inline const juce::Colour keyBlack     { 0xff16233f };
 
    // three shades of the accent: blue, ice and violet-blue
    inline juce::Colour lfoColour(int lfo)

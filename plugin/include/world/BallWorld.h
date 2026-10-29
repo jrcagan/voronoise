@@ -3,10 +3,13 @@
 #include <JuceHeader.h>
 #include <array>
 #include <map>
+#include <mutex>
+#include <optional>
 #include <vector>
 #include "DSP/Fifo.h"
 #include "geometry/Utils.h"
 #include "geometry/Voronoi.h"
+#include "geometry/Metrics.h"
 #include "primitives/Ball.h"
 #include "synth/HitSynth.h"
 #include "Voronoise/Params.h"
@@ -20,6 +23,7 @@ class BallWorld
 {
 public:
    explicit BallWorld(VoronoiseAudioProcessor& processor);
+   ~BallWorld();
 
    // the screen, in the same units the canvas draws in
    static constexpr float WIDTH = 746.f;
@@ -36,9 +40,12 @@ public:
       std::vector<GeoUtils::Point> sites;
       std::vector<GeoUtils::Triangle> triangles;
       std::map<GeoUtils::Point, Voronoi::Cell, GeoUtils::PointComparator> cells;
+      std::vector<Metrics::Polyline> voronoiLines;  // the cell walls, in whichever metric
+      std::vector<GeoUtils::Edge> delaunayLines;    // between sites that share a wall
       std::vector<GeoUtils::Edge> edges;            // what balls bounce off: whichever lines are on, minus the borders
       std::vector<juce::Point<float>> cellCentres;  // where midi balls drop from
       Params::Lines lines = Params::Lines::Both;
+      Metrics::Type metric = Metrics::Type::Euclidean;
    };
 
    // what the canvas draws
@@ -56,12 +63,17 @@ public:
    struct HitEvent {
       int sampleOffset = 0;
       HitSynth::Hit hit;
+      juce::uint32 ball = 0; // which ball made it
    };
 
    //==============================================================================
    // message thread
-   void rebuildGeometry();  // from the sites in the state and the (modulated) lines setting
-   void syncGeometry();     // rebuilds if an lfo moved the lines setting
+   void rebuildGeometry();  // from the sites in the state and the (modulated) lines setting, right now
+   // the same, but built on another thread and picked up by syncGeometry. for dragging a site, where
+   // hilbert can take longer than a frame: only the newest request gets built, the ui never waits
+   void requestRebuild();
+   void syncGeometry();     // takes any finished background build, rebuilds if an lfo moved the lines setting
+   bool isRebuilding() const; // a background build hasn't been picked up yet
    Geometry::Ptr getGeometry() const { return geometry; }
 
    void requestDrop(juce::Point<float> position);
@@ -107,6 +119,27 @@ private:
       int noteNumber = 60, velocity = 100;
    };
 
+   // what a build needs, read from the state and parameters on the message thread
+   struct BuildInputs {
+      std::vector<GeoUtils::Point> sites;
+      Params::Lines lines = Params::Lines::Both;
+      Metrics::Type metric = Metrics::Type::Euclidean;
+   };
+   BuildInputs getBuildInputs() const;
+   Geometry::Ptr build(const BuildInputs& inputs); // any thread, holds buildLock
+   void install(Geometry::Ptr built);             // message thread
+
+   // builds the latest request in the background
+   class Builder : public juce::Thread
+   {
+   public:
+      explicit Builder(BallWorld& world) : juce::Thread("Voronoise geometry"), world(world) {}
+      void run() override;
+
+   private:
+      BallWorld& world;
+   };
+
    void handleRequests();
    void addBall(const Ball& ball);
    void setupBall(Ball& ball, int noteNumber, float sizeScale);
@@ -119,6 +152,25 @@ private:
    // message thread
    Geometry::Ptr geometry;
    juce::ReferenceCountedArray<Geometry> geometryPool; // keeps old ones alive until the audio thread lets go
+
+   // whoever's building (message thread or the builder). manhattan/hilbert diagrams are slow-ish, so the
+   // last one is kept for when only the lines setting changes, and their bisectors for when one site moves
+   std::mutex buildLock;
+   std::vector<GeoUtils::Point> cachedSites;
+   Metrics::Type cachedMetric = Metrics::Type::Euclidean;
+   Metrics::Diagram cachedDiagram;
+   Metrics::BisectorCache bisectorCache;
+
+   // background builds. every request gets a number, and a build only goes in if nothing newer has
+   std::mutex jobLock;
+   std::optional<BuildInputs> job;
+   juce::uint64 jobNumber = 0;
+   Geometry::Ptr finished;
+   juce::uint64 finishedNumber = 0;
+   juce::uint64 requestNumber = 0;   // message thread
+   juce::uint64 installedNumber = 0; // message thread
+   juce::WaitableEvent jobReady;
+   Builder builder { *this };
 
    // handed across
    SimpleMBComp::Fifo<Geometry::Ptr, 16> geometryFifo;
@@ -137,12 +189,14 @@ private:
    struct PendingHit {
       juce::int64 when = 0;        // on the clock above
       HitSynth::Hit hit;
+      juce::uint32 ball = 0;
    };
 
    // the press each held key is on, and when it went down (on the clock)
    std::array<juce::uint32, 128> keyPresses {};
    std::array<juce::int64, 128> keyDownAt {};
    juce::uint32 nextKeyPress = 1;
+   juce::uint32 nextBallId = 1;
    std::array<PendingHit, MAX_HITS_PER_BLOCK * 2> pending {};
    int numPending = 0;
    double samplesSinceSnapshot = 0.0;

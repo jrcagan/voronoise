@@ -29,49 +29,50 @@ namespace UI
            for (float y = 20.f; y < bounds.getHeight(); y += 40.f)
                g.fillRect(x, y, 1.5f, 1.5f);
 
-       if (geometry->sites.size() > 2)
+       // delaunay (in whichever metric) under the voronoi
+       if (geometry->lines != Params::Lines::VoronoiOnly)
        {
-           if (geometry->lines != Params::Lines::VoronoiOnly)
+           g.setColour(Theme::labelDim.withAlpha(0.8f));
+           for (const auto &edge : geometry->delaunayLines)
+               g.drawLine(static_cast<float>(edge.u.x), static_cast<float>(edge.u.y),
+                          static_cast<float>(edge.v.x), static_cast<float>(edge.v.y), 1.2f);
+       }
+
+       if (geometry->lines != Params::Lines::DelaunayOnly)
+       {
+           // the cell walls as paths (manhattan and hilbert ones bend), wide and faint then thin for a glow
+           juce::Path walls;
+           for (const auto &line : geometry->voronoiLines)
            {
-               g.setColour(Theme::labelDim.withAlpha(0.8f));
-               for (const auto &t : geometry->triangles)
-               {
-                   g.drawLine(static_cast<float>(t.a.getX()), static_cast<float>(t.a.getY()),
-                              static_cast<float>(t.b.getX()), static_cast<float>(t.b.getY()), 1.2f);
-                   g.drawLine(static_cast<float>(t.b.getX()), static_cast<float>(t.b.getY()),
-                              static_cast<float>(t.c.getX()), static_cast<float>(t.c.getY()), 1.2f);
-                   g.drawLine(static_cast<float>(t.c.getX()), static_cast<float>(t.c.getY()),
-                              static_cast<float>(t.a.getX()), static_cast<float>(t.a.getY()), 1.2f);
-               }
+               if (line.size() < 2)
+                   continue;
+               walls.startNewSubPath(line.front().toFloat());
+               for (size_t i = 1; i < line.size(); i++)
+                   walls.lineTo(line[i].toFloat());
            }
-
-           if (geometry->lines != Params::Lines::DelaunayOnly)
+           for (auto [width, alpha] : { std::pair{ 5.f, 0.12f }, std::pair{ 1.5f, 1.f } })
            {
-               // drawn twice, wide and faint then thin, for a phosphor glow
-               for (auto [width, alpha] : { std::pair{ 5.f, 0.12f }, std::pair{ 1.5f, 1.f } })
-               {
-                   g.setColour(Theme::phosphor.withAlpha(alpha));
-                   for (const auto &kv : geometry->cells)
-                   {
-                       const auto &verts = kv.second.vertices;
-                       if (verts.size() < 2)
-                           continue;
-
-                       for (size_t i = 0; i < verts.size(); ++i)
-                       {
-                           const auto &a = verts[i];
-                           const auto &b = verts[(i + 1) % verts.size()];
-                           g.drawLine(static_cast<float>(a.getX()), static_cast<float>(a.getY()),
-                                      static_cast<float>(b.getX()), static_cast<float>(b.getY()), width);
-                       }
-                   }
-               }
+               g.setColour(Theme::phosphor.withAlpha(alpha));
+               g.strokePath(walls, juce::PathStrokeType(width, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
            }
        }
 
-       g.setColour(Theme::highlight);
-       for (const auto &point : geometry->sites)
-           g.drawEllipse(static_cast<float>(point.getX()) - 2.5f, static_cast<float>(point.getY()) - 2.5f, 5.f, 5.f, 1.5f);
+       // straight from the state rather than the built lines, so a dragged site stays under the mouse even
+       // while its lines are still being worked out
+       const auto sitesTree = processor.getValueTree().getChildWithName("Sites");
+       for (int i = 0; i < sitesTree.getNumChildren(); i++)
+       {
+           const juce::Point<float> point { static_cast<float>(sitesTree.getChild(i)["x"]), static_cast<float>(sitesTree.getChild(i)["y"]) };
+           g.setColour(Theme::highlight);
+           g.drawEllipse(juce::Rectangle<float>(5.f, 5.f).withCentre(point), 1.5f);
+
+           // a ring around the one under the mouse (or being dragged), so it's clear it can be grabbed
+           if (mode == Mode::DrawSites && (i == draggedSite || (draggedSite < 0 && i == hoveredSite)))
+           {
+               g.setColour(Theme::highlight.withAlpha(i == draggedSite ? 0.9f : 0.5f));
+               g.drawEllipse(juce::Rectangle<float>(GRAB_RADIUS * 2.f, GRAB_RADIUS * 2.f).withCentre(point), 1.f);
+           }
+       }
 
        for (int i = 0; i < snapshot->numBalls; i++)
        {
@@ -107,7 +108,10 @@ namespace UI
 
    void Canvas::setMode(Mode newMode)
    {
+       endDrag();
        mode = newMode;
+       hoveredSite = -1;
+       setMouseCursor(juce::MouseCursor::NormalCursor);
        repaint();
    }
 
@@ -159,11 +163,43 @@ namespace UI
    {
        if (mode == Mode::DropBalls)
            dropBall(event.position);
+       else
+           beginDrag(event.position);
+   }
+
+   void Canvas::mouseDrag(const juce::MouseEvent &event)
+   {
+       if (isDragging())
+           dragTo(event.position);
+   }
+
+   void Canvas::mouseUp(const juce::MouseEvent &event)
+   {
+       endDrag();
+       mouseMove(event);
+   }
+
+   void Canvas::mouseMove(const juce::MouseEvent &event)
+   {
+       const int site = mode == Mode::DrawSites ? findSiteAt(event.position) : -1;
+       if (site != hoveredSite)
+       {
+           hoveredSite = site;
+           setMouseCursor(site >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+           repaint();
+       }
+   }
+
+   void Canvas::mouseExit(const juce::MouseEvent &)
+   {
+       hoveredSite = -1;
+       repaint();
    }
 
    void Canvas::mouseDoubleClick(const juce::MouseEvent &event)
    {
-       if (mode != Mode::DrawSites)
+       // double clicking on a site is grabbing it, not putting another one on top
+       if (mode != Mode::DrawSites || findSiteAt(event.position) >= 0)
            return;
 
        // the processor hears about this and rebuilds the lines
@@ -172,6 +208,60 @@ namespace UI
                .setProperty("x", static_cast<double>(event.x), nullptr)
                .setProperty("y", static_cast<double>(event.y), nullptr),
            nullptr);
+   }
+
+   int Canvas::findSiteAt(juce::Point<float> position) const
+   {
+       // the closest one within reach, so sites close together can still be picked apart
+       const auto sitesTree = processor.getValueTree().getChildWithName("Sites");
+       int closest = -1;
+       float closestDistance = GRAB_RADIUS;
+       for (int i = 0; i < sitesTree.getNumChildren(); i++)
+       {
+           const juce::Point<float> site { static_cast<float>(sitesTree.getChild(i)["x"]), static_cast<float>(sitesTree.getChild(i)["y"]) };
+           const float distance = site.getDistanceFrom(position);
+           if (distance <= closestDistance)
+           {
+               closestDistance = distance;
+               closest = i;
+           }
+       }
+       return closest;
+   }
+
+   bool Canvas::beginDrag(juce::Point<float> position)
+   {
+       draggedSite = findSiteAt(position);
+       if (draggedSite < 0)
+           return false;
+
+       const auto site = processor.getValueTree().getChildWithName("Sites").getChild(draggedSite);
+       grabOffset = juce::Point<float>(static_cast<float>(site["x"]), static_cast<float>(site["y"])) - position;
+       repaint();
+       return true;
+   }
+
+   void Canvas::dragTo(juce::Point<float> position)
+   {
+       auto site = processor.getValueTree().getChildWithName("Sites").getChild(draggedSite);
+       if (! site.isValid())
+       {
+           // cleared (or the state was swapped) mid drag
+           draggedSite = -1;
+           return;
+       }
+
+       // stays on the screen. each property change asks for the lines to be rebuilt in the background
+       const auto target = position + grabOffset;
+       site.setProperty("x", static_cast<double>(juce::jlimit(0.f, BallWorld::WIDTH, target.x)), nullptr);
+       site.setProperty("y", static_cast<double>(juce::jlimit(0.f, BallWorld::HEIGHT, target.y)), nullptr);
+       repaint();
+   }
+
+   void Canvas::endDrag()
+   {
+       draggedSite = -1;
+       repaint();
    }
 
    void Canvas::syncWithProcessor()

@@ -19,7 +19,19 @@ namespace UI
 
       void paint(juce::Graphics& g) override;
       void mouseDown(const juce::MouseEvent& event) override;
+      void mouseDrag(const juce::MouseEvent& event) override;
+      void mouseUp(const juce::MouseEvent& event) override;
+      void mouseMove(const juce::MouseEvent& event) override;
+      void mouseExit(const juce::MouseEvent& event) override;
       void mouseDoubleClick(const juce::MouseEvent& event) override;
+
+      // sites can be grabbed and dragged around in draw mode, the lines follow as it goes
+      int findSiteAt(juce::Point<float> position) const; // index in the state's sites, -1 if none's there
+      bool beginDrag(juce::Point<float> position);       // false if there's no site to grab
+      void dragTo(juce::Point<float> position);
+      void endDrag();
+      bool isDragging() const { return draggedSite >= 0; }
+      static constexpr float GRAB_RADIUS = 8.f;
 
       // these go to the audio thread and happen on its next block
       void spawnBall(int noteNumber, int velocity);
@@ -56,6 +68,9 @@ namespace UI
       VoronoiseAudioProcessor& processor;
       std::unique_ptr<BallWorld::Snapshot> snapshot; // too big to keep inline comfortably
       Mode mode = Mode::DrawSites;
+      int draggedSite = -1;
+      int hoveredSite = -1;
+      juce::Point<float> grabOffset; // from the mouse to the site, so it doesn't jump to the pointer
 
       JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Canvas)
    };

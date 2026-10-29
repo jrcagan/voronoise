@@ -22,6 +22,7 @@ public:
    };
 
    juce::Colour color = juce::Colours::orange;
+   juce::uint32 id = 0; // set by the world, so a hit can be traced back to its ball
 
    float radius = 6.f;
    juce::Point<float> velocity; // pixels per second
@@ -40,6 +41,8 @@ public:
 
    float timeLeftAlive = 8.f; // seconds
    float hitCooldown = 0.f; // seconds until it's allowed to play again
+   float sinceLanding = 1e9f; // seconds since it last came down on something it can stand on
+   int shortHops = 0;         // landings in a row that came sooner than a min bounce hop takes
 
    // edges (by index) it's currently passing through, so it doesn't bounce halfway through them.
    // a fixed size array because this runs on the audio thread, which mustn't allocate
@@ -82,7 +85,14 @@ public:
    static constexpr float LOUD_HIT_SPEED = 900.f; // this fast or more is full volume
    static constexpr float HIT_COOLDOWN = 0.04f;  // stops corners from double triggering
 
+   // how long a hop at the min bounce takes to come back down on flat ground
+   static float getHopTime(const Physics& physics);
+
 private:
+   // it came down on something it can stand on: true if it should get the min bounce kick. a ball boxed in
+   // somewhere (under the ceiling, in a V, against a wall) keeps landing again before a hop could finish,
+   // and kicking it every time rattles it there until it dies, so after two short hops it's left to settle
+   bool land(const Physics& physics);
    Contact bounceOffWalls(const juce::Rectangle<float>& bounds, const Physics& physics, float h);
    Contact bounceOffEdge(const GeoUtils::Edge& edge, int index, const Physics& physics, float h);
    float getDistanceTo(const GeoUtils::Edge& edge, juce::Point<float>& closest) const;

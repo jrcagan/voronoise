@@ -24,6 +24,7 @@ Ball::Contact Ball::step(float h, const juce::Rectangle<float>& bounds, const st
 
    timeLeftAlive -= h;
    hitCooldown -= h;
+   sinceLanding += h;
 
    // move by the average of the old and new velocity, which is exact under gravity. moving by the new
    // one alone puts the ball half a step ahead, so every hit would land a couple of ms early
@@ -78,6 +79,23 @@ float Ball::getHitGain(float impactSpeed, float dynamics) const {
    return impactScale * juce::jlimit(0.f, 1.f, noteVelocity / 127.f);
 }
 
+float Ball::getHopTime(const Physics& physics) {
+   if (physics.gravity <= 0.f || physics.minBounce <= 0.f) {
+      return 0.f;
+   }
+   // twice the time to the top. with drag the way down is slower than the way up, so it's a bit more
+   const float toTop = physics.drag > 1e-4f ? std::log(1.f + physics.drag * physics.minBounce / physics.gravity) / physics.drag
+                                            : physics.minBounce / physics.gravity;
+   return 2.f * toTop;
+}
+
+bool Ball::land(const Physics& physics) {
+   // a little slack for the physics step
+   shortHops = sinceLanding < 0.9f * getHopTime(physics) ? shortHops + 1 : 0;
+   sinceLanding = 0.f;
+   return shortHops < 2;
+}
+
 bool Ball::isAlive() const {
    return timeLeftAlive > 0.f;
 }
@@ -129,9 +147,11 @@ Ball::Contact Ball::bounceOffWalls(const juce::Rectangle<float>& bounds, const P
       hit(overlap, speedIn);
       const float ago = hardest.speed > before.speed ? hardest.secondsAgo : timeSinceContact(overlap, speedIn, h);
       float atTouch = std::abs(velocity.y - physics.gravity * ago) * physics.restitution * sign;
-      // the floor never lets it settle: at least the min bounce back up
+      // the floor never lets it settle: at least the min bounce back up, if there's room to hop
       if (sign < 0.f) {
-         atTouch = -juce::jmax(std::abs(atTouch), physics.minBounce);
+         if (land(physics)) {
+            atTouch = -juce::jmax(std::abs(atTouch), physics.minBounce);
+         }
       }
       y = surface + atTouch * ago + 0.5f * physics.gravity * ago * ago;
       velocity.y = atTouch + physics.gravity * ago;
@@ -202,7 +222,7 @@ Ball::Contact Ball::bounceOffEdge(const GeoUtils::Edge& edge, int index, const P
       // instead of sliding along silently. walls and overhangs bounce as normal
       constexpr float FACING_UP = -0.3f; // screen y points down
       const float awaySpeed = bounced.getDotProduct(normal);
-      if (normal.y < FACING_UP && awaySpeed < physics.minBounce) {
+      if (normal.y < FACING_UP && land(physics) && awaySpeed < physics.minBounce) {
          bounced += normal * (physics.minBounce - awaySpeed);
       }
       x += bounced.x * ago;

@@ -133,6 +133,7 @@ private:
     void rebuildRoutes();
     void valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree& child) override;
     void valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree& child, int index) override;
+    void valueTreePropertyChanged (juce::ValueTree& tree, const juce::Identifier& property) override;
     void timerCallback() override; // catches lfos moving the lines setting
     void renderHits(juce::AudioBuffer<float>& buffer);
 

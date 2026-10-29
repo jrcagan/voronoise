@@ -488,15 +488,15 @@ namespace UI
       keyboard.setAvailableRange(24, 96);
       keyboard.setScrollButtonsVisible(false);
       keyboard.setOctaveForMiddleC(4);
-      keyboard.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::control);
-      keyboard.setColour(juce::MidiKeyboardComponent::blackNoteColourId, Theme::well);
-      keyboard.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, Theme::controlEdge);
-      keyboard.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, Theme::accent.withAlpha(0.2f));
-      keyboard.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::accent.withAlpha(0.8f));
+      keyboard.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::keyWhite);
+      keyboard.setColour(juce::MidiKeyboardComponent::blackNoteColourId, Theme::keyBlack);
+      keyboard.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, Theme::keyBlack);
+      keyboard.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, Theme::highlight.withAlpha(0.25f));
+      keyboard.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::highlight.withAlpha(0.85f));
       keyboard.setColour(juce::MidiKeyboardComponent::shadowColourId, juce::Colours::black.withAlpha(0.3f));
       keyboard.setColour(juce::MidiKeyboardComponent::upDownButtonBackgroundColourId, Theme::control);
       keyboard.setColour(juce::MidiKeyboardComponent::upDownButtonArrowColourId, Theme::labelDim);
-      keyboard.setColour(juce::MidiKeyboardComponent::textLabelColourId, Theme::labelDim);
+      keyboard.setColour(juce::MidiKeyboardComponent::textLabelColourId, Theme::keyBlack);
       addAndMakeVisible(keyboard);
 
       buildSections();
@@ -525,7 +525,8 @@ namespace UI
       };
 
       geometry = std::make_unique<Section>("Geometry");
-      geometry->addRow({ { make(*geometry, Params::LINES, "Lines", Style::Switch), 1.f } }, 52);
+      geometry->addRow({ { make(*geometry, Params::LINES, "Lines", Style::Switch), 1.f } }, 46);
+      geometry->addRow({ { make(*geometry, Params::METRIC, "Metric", Style::Switch), 1.f } }, 46);
 
       auto* play = (midi = std::make_unique<Section>("Play")).get();
       play->addRow({ { make(*play, Params::MIDI_DROP_CHANCE, "Midi drop"), 1.f },
@@ -732,9 +733,9 @@ namespace UI
 
       computer.setBounds(40, 74, 790, 452);
 
-      geometry->setBounds(842, 74, 398, 92);
-      midi->setBounds(842, 174, 398, 182);
-      hitRandom->setBounds(842, 364, 398, 162);
+      geometry->setBounds(842, 74, 398, 128);
+      midi->setBounds(842, 210, 398, 176);
+      hitRandom->setBounds(842, 394, 398, 132);
 
       lfoPanel.setBounds(40, 538, 620, 310);
 
